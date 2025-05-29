@@ -97,49 +97,155 @@ The evaluation systematically varies:
 
 ```
 project/
-├── src/                    # Source code files
+├── CMakeLists.txt         # Main CMake configuration
+├── cmake/                 # CMake modules and find scripts
+│   ├── FindFastFlow.cmake # FastFlow detection
+│   └── modules/           # Additional CMake modules
+├── src/                   # Source code files
 │   ├── fastflow/          # FastFlow implementation
+│   │   ├── CMakeLists.txt # FastFlow target configuration
+│   │   └── *.cpp/*.hpp    # Source and header files
 │   ├── openmp/            # OpenMP implementation
+│   │   ├── CMakeLists.txt # OpenMP target configuration
+│   │   └── *.cpp/*.hpp    # Source and header files
 │   ├── mpi/               # MPI hybrid implementation
-│   └── common/            # Shared utilities
-├── scripts/               # Compilation and execution scripts
+│   │   ├── CMakeLists.txt # MPI target configuration
+│   │   └── *.cpp/*.hpp    # Source and header files
+│   └── utils/             # Shared utilities and common code
+│       ├── CMakeLists.txt # Utility library configuration
+│       └── *.cpp/*.hpp    # Utility functions
+├── build/                 # Build directory (generated)
+├── bin/                   # Compiled executables (generated)
+├── scripts/               # Utility scripts (benchmarking, data processing)
 ├── data/                  # Dataset files
 ├── results/               # Output and performance results
-├── docs/                  # Documentation
-└── README.md             # This file
+├── report/                # Documentation and analysis
+└── README.md              # This file
 ```
 
 ## Compilation and Execution
 
 ### Prerequisites
-- C++ compiler with OpenMP support
+- C++ compiler with C++17 support (g++ 7.0+ or clang++ 5.0+)
+- CMake 3.12 or higher
 - FastFlow framework
 - MPI implementation (OpenMPI/MPICH)
+- OpenMP support
 - Access to SPM cluster
 
-### Build Scripts
+### Build System
+The project uses CMake for cross-platform build configuration and dependency management.
+
+#### Quick Start
 ```bash
-# Compile all versions
-./scripts/compile_all.sh
+# Create build directory
+mkdir build && cd build
 
-# Single-node versions
-./scripts/compile_fastflow.sh
-./scripts/compile_openmp.sh
+# Configure the project
+cmake ..
 
-# Distributed version
-./scripts/compile_mpi.sh
+# Build all targets
+cmake --build . --parallel 4
+
+# Or use make (if using Unix Makefiles generator)
+make -j4
 ```
 
-### Execution Scripts
+#### Configuration Options
 ```bash
-# Single-node execution
-./scripts/run_single_node.sh <dataset> <trees> <threads>
+# Debug build
+cmake -DCMAKE_BUILD_TYPE=Debug ..
 
-# Multi-node execution
-./scripts/run_distributed.sh <dataset> <trees> <nodes> <threads_per_node>
+# Release build (optimized)
+cmake -DCMAKE_BUILD_TYPE=Release ..
+
+# Specify custom FastFlow path
+cmake -DFastFlow_ROOT=/path/to/fastflow ..
+
+# Enable specific components only
+cmake -DBUILD_FASTFLOW=ON -DBUILD_OPENMP=ON -DBUILD_MPI=OFF ..
+
+# Cross-compilation for cluster
+cmake -DCMAKE_TOOLCHAIN_FILE=cmake/cluster-toolchain.cmake ..
+```
+
+#### Build Targets
+```bash
+# Build specific implementations
+cmake --build . --target rf_fastflow
+cmake --build . --target rf_openmp
+cmake --build . --target rf_mpi
+
+# Build utilities library
+cmake --build . --target rf_utils
+
+# Run tests
+cmake --build . --target test
+# or
+ctest
+
+# Install executables
+cmake --build . --target install
+```
+
+### Execution
+```bash
+# Single-node FastFlow execution
+./bin/rf_fastflow <dataset> <trees> <threads>
+
+# Single-node OpenMP execution
+./bin/rf_openmp <dataset> <trees> <threads>
+
+# Multi-node MPI execution
+mpirun -np <processes> -hostfile hostfile ./bin/rf_mpi <dataset> <trees> <threads_per_process>
 
 # Performance benchmarks
-./scripts/benchmark_all.sh
+./scripts/benchmark.sh
+```
+
+### Example Usage
+```bash
+# Configure and build everything
+mkdir build && cd build
+cmake -DCMAKE_BUILD_TYPE=Release ..
+cmake --build . --parallel 4
+
+# Run on Iris dataset with 100 trees, 4 threads
+./bin/rf_fastflow ../data/iris.csv 100 4
+./bin/rf_openmp ../data/iris.csv 100 4
+
+# Distributed execution on 4 nodes, 2 processes per node
+mpirun -np 8 -npernode 2 ./bin/rf_mpi ../data/susy.csv 500 2
+
+# Run comprehensive benchmarks
+cd .. && ./scripts/benchmark.sh
+```
+
+### CMake Features for This Project
+
+#### Automatic Dependency Detection
+- **FindOpenMP.cmake** - Automatically detects OpenMP support
+- **FindMPI.cmake** - Locates MPI implementation
+- **FindFastFlow.cmake** - Custom module to find FastFlow installation
+
+#### Cross-Platform Support
+- Works on Linux, macOS, and Windows
+- Supports different compilers (GCC, Clang, Intel)
+- Handles different MPI implementations automatically
+
+#### Advanced Configuration
+```bash
+# Generate compile_commands.json for IDEs
+cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
+
+# Enable AddressSanitizer for debugging
+cmake -DCMAKE_BUILD_TYPE=Debug -DENABLE_ASAN=ON ..
+
+# Profile-guided optimization
+cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_PGO=ON ..
+
+# Generate documentation
+cmake --build . --target docs
 ```
 
 ## Performance Metrics
@@ -157,36 +263,6 @@ project/
 - Comprehensive result logging
 - Visualization of performance trends
 
-## Deliverables
-
-### Source Code
-- Complete implementation of all three versions
-- Well-documented and modular code structure
-- Compilation and execution scripts
-- Performance benchmarking tools
-
-### Documentation
-- **PDF Report:** Maximum 15 pages
-  - Implementation details
-  - Performance analysis
-  - Challenges and solutions
-  - Optimization strategies
-- **Code Documentation:** Inline comments and API docs
-
-### Submission Requirements
-- **Format:** Single ZIP file: `SPM_project2_<YourName>.zip`
-- **Email:** massimo.torquati@unipi.it
-- **Subject:** "SPM Project"
-- **Contents:** Source code + PDF report
-
-## Development Timeline
-
-| Phase | Duration | Deliverables |
-|-------|----------|--------------|
-| 1 | Week 1-2 | Sequential baseline + Single-node implementations |
-| 2 | Week 3-4 | Multi-node distributed version |
-| 3 | Week 5-6 | Performance evaluation and optimization |
-| 4 | Week 7 | Documentation and final submission |
 
 ## Key Features
 
@@ -216,14 +292,6 @@ project/
 5. **Run validation tests** on small datasets
 6. **Execute performance benchmarks**
 7. **Analyze results** and generate reports
-
-## Contact Information
-
-For questions and support:
-- **Course:** SPM (Parallel and Distributed Systems)
-- **Academic Year:** 2024/2025
-- **Instructor:** Prof. Massimo Torquati
-- **Email:** massimo.torquati@unipi.it
 
 ---
 
