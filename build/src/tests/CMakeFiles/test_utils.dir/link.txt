@@ -1,0 +1,1 @@
+/usr/bin/c++  -O3 -DNDEBUG -ffast-math -march=native -fopenmp  -O3 -DNDEBUG  -fopenmp  -Wl,--dependency-file=CMakeFiles/test_utils.dir/link.d CMakeFiles/test_utils.dir/utils/test_utils.cpp.o CMakeFiles/test_utils.dir/__/utils/utils.cpp.o -o ../../bin/test_utils  /usr/lib/x86_64-linux-gnu/libgtest.a /usr/lib/x86_64-linux-gnu/libgtest_main.a /usr/lib/x86_64-linux-gnu/libgtest.a

@@ -1,0 +1,7 @@
+/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/build/CMakeFiles/test.dir
+/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/build/CMakeFiles/edit_cache.dir
+/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/build/CMakeFiles/rebuild_cache.dir
+/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/build/src/tests/CMakeFiles/test_utils.dir
+/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/build/src/tests/CMakeFiles/test.dir
+/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/build/src/tests/CMakeFiles/edit_cache.dir
+/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/build/src/tests/CMakeFiles/rebuild_cache.dir

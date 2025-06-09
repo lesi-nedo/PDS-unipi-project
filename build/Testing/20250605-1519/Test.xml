@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Site BuildName="(empty)"
+	BuildStamp="20250605-1519-Experimental"
+	Name="(empty)"
+	Generator="ctest-3.31.7"
+	CompilerName=""
+	CompilerVersion=""
+	OSName="Linux"
+	Hostname="ubuntu-23-04"
+	OSRelease="6.8.0-60-generic"
+	OSVersion="#63-Ubuntu SMP PREEMPT_DYNAMIC Tue Apr 15 19:04:15 UTC 2025"
+	OSPlatform="x86_64"
+	Is64Bits="1"
+	VendorString="GenuineIntel"
+	VendorID="Intel Corporation"
+	FamilyID="6"
+	ModelID="94"
+	ModelName="Intel(R) Core(TM) i7-6700HQ CPU @ 2.60GHz"
+	ProcessorCacheSize="6144"
+	NumberOfLogicalCPU="8"
+	NumberOfPhysicalCPU="4"
+	TotalVirtualMemory="7812"
+	TotalPhysicalMemory="15882"
+	LogicalProcessorsPerPhysical="2"
+	ProcessorClockFrequency="2703.03"
+	>
+	<Testing>
+		<StartDateTime>Jun 05 18:12 CEST</StartDateTime>
+		<StartTestTime>1749139965</StartTestTime>
+		<TestList/>
+		<EndDateTime>Jun 05 18:12 CEST</EndDateTime>
+		<EndTestTime>1749139965</EndTestTime>
+		<ElapsedMinutes>0</ElapsedMinutes>
+	</Testing>
+</Site>
