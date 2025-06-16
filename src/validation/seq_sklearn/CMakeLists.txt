@@ -2,7 +2,30 @@ set(DATA_DIR "${CMAKE_SOURCE_DIR}/data")
 set(IRIS_DIR "${DATA_DIR}/iris")
 set(IRIS_DATASET "${IRIS_DIR}/iris.data")
 
-if(NOT EXISTS "${IRIS_DATASET)}")
+message(STATUS "Checking required Python packages...")
+message(STATUS "CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")
+
+option(Python3_EXECUTABLE "Path to Python 3 executable" "python3")
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(NOT Python3_FOUND)
+    message(FATAL_ERROR "Python3 not found. Please ensure you have Python3 installed.")
+endif()
+
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import sklearn, numpy, pandas"
+    RESULT_VARIABLE python_check_result
+    OUTPUT_VARIABLE python_check_output
+    ERROR_VARIABLE python_check_error
+)
+
+if(python_check_result EQUAL 0)
+    message(STATUS "Required Python packages (scikit-learn, numpy, pandas) are installed.")
+else()
+    message(FATAL_ERROR "${Python3_EXECUTABLE} -  packages not found. Please install them with: pip install scikit-learn numpy pandas")
+endif()
+
+message(STATUS "Checking for Iris dataset...")
+if(NOT EXISTS "${IRIS_DATASET}")
     message(STATUS "Iris dataset not found at ${IRIS_DATASET}. Downloading...")
     file(DOWNLOAD
         "https://archive.ics.uci.edu/static/public/53/iris.zip"
@@ -33,3 +56,66 @@ if(NOT EXISTS "${IRIS_DATASET)}")
 else()
     message(STATUS "Iris dataset already exists at ${IRIS_DATASET}.")
 endif()
+
+# Execute the preprocessing script
+message(STATUS "Running data preprocessing...")
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/preprocess.py"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    RESULT_VARIABLE preprocess_result
+    OUTPUT_VARIABLE preprocess_output
+    ERROR_VARIABLE preprocess_error
+)
+
+if(preprocess_result EQUAL 0)
+    message(STATUS "Data preprocessing completed successfully.")
+    if(preprocess_output)
+        message(STATUS "Output: ${preprocess_output}")
+    endif()
+else()
+    message(FATAL_ERROR "Data preprocessing failed: ${preprocess_error}")
+endif()
+
+set(PATHS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/paths.txt")
+
+if(NOT EXISTS "${PATHS_FILE}")
+    message(FATAL_ERROR "Paths file not found: ${PATHS_FILE}. Please ensure the preprocessing script has created it.")
+endif()
+file(STRINGS "${PATHS_FILE}" paths_content)
+string(REPLACE "\n" ";" paths_list "${paths_content}")
+list(GET paths_list 0 TRAIN_DATA_PATH)
+list(GET paths_list 1 TEST_DATA_PATH)
+
+if(NOT TRAIN_DATA_PATH OR NOT TEST_DATA_PATH)
+    message(FATAL_ERROR "Train or test data paths not found in environment variables")
+endif()
+
+message(STATUS "Train data path: ${TRAIN_DATA_PATH}")
+message(STATUS "Test data path: ${TEST_DATA_PATH}")
+file(REMOVE "${PATHS_FILE}")
+
+add_executable(sq_random_forest
+    "${CMAKE_CURRENT_SOURCE_DIR}/sq_random_forest.cpp"
+    "${CMAKE_SOURCE_DIR}/src/utils/utils.cpp"
+    )
+
+
+target_include_directories(sq_random_forest
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/src/utils"
+        "${CMAKE_SOURCE_DIR}/include/sequential")
+
+add_custom_target(
+    run_sq_random_forest
+    COMMAND $<TARGET_FILE:sq_random_forest> "${TRAIN_DATA_PATH}" "${TEST_DATA_PATH}"
+    DEPENDS sq_random_forest
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Running Sequential Random Forest on Iris dataset"
+    )
+
+add_custom_target(
+    run_sequential_validation
+    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/validate.py" "${TRAIN_DATA_PATH}" "${TEST_DATA_PATH}"
+    DEPENDS run_sq_random_forest
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    )

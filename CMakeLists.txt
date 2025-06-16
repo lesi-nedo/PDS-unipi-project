@@ -187,6 +187,11 @@ else()
     message(STATUS "Tests not requested, skipping tests configuration.")
 endif()
 
+if(BUILD_VALSEQ)
+    message(STATUS "Building sequential Random Forset and validation against Scikit-learn")
+    add_subdirectory(src/validation/seq_sklearn)
+endif()    
+
 message (STATUS "-- Configuration Summary --")
 message (STATUS "CMake version: ${CMAKE_VERSION}")
 message (STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")

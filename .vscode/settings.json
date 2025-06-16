@@ -1,5 +1,6 @@
 {
     "files.associations": {
+        "*.tex": "bat",
         "fstream": "cpp",
         "array": "cpp",
         "atomic": "cpp",
@@ -65,10 +66,22 @@
         "valarray": "cpp",
         "variant": "cpp",
         "format": "cpp",
-        "any": "cpp"
+        "any": "cpp",
+        "filesystem": "cpp",
+        "codecvt": "cpp",
+        "complex": "cpp",
+        "forward_list": "cpp",
+        "unordered_set": "cpp",
+        "regex": "cpp",
+        "ranges": "cpp",
+        "cinttypes": "cpp",
+        "typeindex": "cpp"
     },
     "cmake.buildDirectory": "${workspaceFolder}/build",
     "cmake.configureOnOpen": true,
+    "cmake.configureArgs": [
+        "-DPython3_EXECUTABLE=/home/lesi-nedo/miniforge3/envs/PDS/bin/python",
+    ],
     "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
     "C_Cpp.default.includePath": [
         "${workspaceFolder}/src/utils",

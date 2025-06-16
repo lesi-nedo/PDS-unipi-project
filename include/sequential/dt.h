@@ -57,6 +57,7 @@
 #include <algorithm>
 #include <iterator>
 #include <iostream>
+#include <map> 
 
 #include "marray.h"
 
@@ -119,8 +120,13 @@ private:
 
     template<class RandomEngine>
         void sampleSubsetWithoutReplacement(const size_t, const size_t, 
+            std::vector<size_t>&, RandomEngine&
+        );
+
+    template<class RandomEngine>
+        void sampleSubsetWithoutReplacement(const size_t, const size_t, 
             std::vector<size_t>&, RandomEngine&,
-            std::vector<size_t>& = std::vector<size_t>()
+            std::vector<size_t>&
         );
 
     template<typename T>
@@ -401,22 +407,50 @@ DecisionNode<FEATURE, LABEL>::learn(
     // handle the case in which there is only one unique label (pure node)
     {
         bool isLabelUnique = true;
-        const size_t firstLabel = labels(sampleIndices[sampleIndexBegin]);
+        const size_t firstLabelSampleIndex = sampleIndices[sampleIndexBegin];
+        // Ensure firstLabelSampleIndex is valid before dereferencing labels
+        if (firstLabelSampleIndex >= labels.size()) {
+            throw std::out_of_range("Sample index out of bounds for labels.");
+        }
+        const Label firstLabel = labels(firstLabelSampleIndex);
         for(size_t j = sampleIndexBegin + 1; j < sampleIndexEnd; ++j) {
-            if(labels(sampleIndices[j]) != firstLabel) { 
+            const size_t currentSampleIndex = sampleIndices[j];
+            if (currentSampleIndex >= labels.size()) {
+                 throw std::out_of_range("Sample index out of bounds for labels during purity check.");
+            }
+            if(labels(currentSampleIndex) != firstLabel) { 
                 isLabelUnique = false;
                 break;
             }
         }
         if(isLabelUnique) {
             isLeaf_ = true;
-            label_ = labels(sampleIndices[sampleIndexBegin]);
+            label_ = firstLabel;
             // std::cout << "sample is pure." << std::endl;
             return 0;
         }
     }
     
     const size_t numberOfFeatures = features.shape(1);
+    if (numberOfFeatures == 0) { // Handle case with no features
+        isLeaf_ = true;
+        // Set label to majority label, or first label if only one sample type
+        std::map<Label, size_t> localLabelCounts;
+        for (size_t k = sampleIndexBegin; k < sampleIndexEnd; ++k) {
+            localLabelCounts[labels(sampleIndices[k])]++;
+        }
+        Label majorityLabelValue = labels(sampleIndices[sampleIndexBegin]);
+        size_t maxCount = 0;
+        for (const auto& pair : localLabelCounts) {
+            if (pair.second > maxCount) {
+                maxCount = pair.second;
+                majorityLabelValue = pair.first;
+            }
+        }
+        label_ = majorityLabelValue;
+        return 0;
+    }
+
     const size_t numberOfFeaturesToBeAssessed = 
         static_cast<size_t>(
             std::ceil(std::sqrt(
@@ -424,28 +458,28 @@ DecisionNode<FEATURE, LABEL>::learn(
             ))
         );
 
-    std::vector<size_t> featureIndices(numberOfFeaturesToBeAssessed); // expensive!
-    std::vector<size_t> buffer; // expensive!
+    std::vector<size_t> featureIndicesBuffer(numberOfFeaturesToBeAssessed); 
+    std::vector<size_t> randomSampleBuffer; 
     
     sampleSubsetWithoutReplacement(
         numberOfFeatures, 
         numberOfFeaturesToBeAssessed, 
-        featureIndices,
+        featureIndicesBuffer,
         randomEngine,
-        buffer
+        randomSampleBuffer
     );
 
-    std::vector<size_t> numbersOfLabels[2]; 
-    numbersOfLabels[0].reserve(10); // expensive!
-    numbersOfLabels[1].reserve(10); // expensive!
+    std::vector<size_t> numbersOfLabelsForSplit[2]; 
+    numbersOfLabelsForSplit[0].reserve(10); 
+    numbersOfLabelsForSplit[1].reserve(10); 
     double optimalSumOfGiniCoefficients = std::numeric_limits<double>::infinity();
-    size_t optimalFeatureIndex;
-    size_t optimalThresholdIndex;
-    Feature optimalThreshold;
-    for(size_t j = 0; j < numberOfFeaturesToBeAssessed; ++j) {
-        const size_t fi = featureIndices[j];
+    size_t currentOptimalFeatureIndex = 0; // Initialize
+    Feature currentOptimalThreshold = Feature(); // Initialize
+    size_t currentOptimalThresholdIndex = sampleIndexBegin; // Initialize
 
-        // sort sample indices wrt fi-th feature
+    for(size_t j = 0; j < numberOfFeaturesToBeAssessed; ++j) {
+        const size_t fi = featureIndicesBuffer[j];
+
         std::sort(
             sampleIndices.begin() + sampleIndexBegin, 
             sampleIndices.begin() + sampleIndexEnd, 
@@ -459,68 +493,67 @@ DecisionNode<FEATURE, LABEL>::learn(
         }
         #endif
 
-        // the variables "numbersOfElements" and "numbersOfLabels" are defined 
-        // for two sets:
-        // [0] all samples with indices {sampleIndexBegin, ..., thresholdIndex - 1}
-        // [1] all samples with indices {thresholdIndex, ..., sampleIndexEnd}
-        // the initialization is for 0 being the empty set.
-
-        // numbers of elements
         size_t numbersOfElements[] = {0, sampleIndexEnd - sampleIndexBegin};
         
-        // numbers of labels
-        for(size_t k = sampleIndexBegin; k < sampleIndexEnd; ++k) {
-            const Label label = labels(sampleIndices[k]);
-            if(label >= numbersOfLabels[1].size()) {
-                const size_t newNumberOfLabels = label + 1;
-                for(size_t s = 0; s < 2; ++s) {
-                    numbersOfLabels[s].resize(newNumberOfLabels); // expensive!
-                }
-            }
-            ++numbersOfLabels[1][label];
+        for(size_t s = 0; s < 2; ++s) { // Clear/resize for current feature
+            numbersOfLabelsForSplit[s].assign(*std::max_element(labels.begin(), labels.end()) + 1, 0);
         }
 
-        // assess all relevant splits wrt fi-th feature
-        size_t thresholdIndex = sampleIndexBegin;
+        for(size_t k = sampleIndexBegin; k < sampleIndexEnd; ++k) {
+            const Label label = labels(sampleIndices[k]);
+            if(label >= numbersOfLabelsForSplit[1].size()) { // Should be handled by pre-sizing
+                 numbersOfLabelsForSplit[0].resize(label + 1, 0);
+                 numbersOfLabelsForSplit[1].resize(label + 1, 0);
+            }
+            ++numbersOfLabelsForSplit[1][label];
+        }
+
+        size_t thresholdIndexLoopVar = sampleIndexBegin;
         for(;;) { 
-            const size_t thresholdIndexOld = thresholdIndex;
+            const size_t thresholdIndexOld = thresholdIndexLoopVar;
 
-            // skip samples with identical feature value
-            while(thresholdIndex + 1 < sampleIndexEnd
-            && features(sampleIndices[thresholdIndex], fi) 
-            == features(sampleIndices[thresholdIndex + 1], fi)) {                
-                const size_t label = labels(sampleIndices[thresholdIndex]);
+            while(thresholdIndexLoopVar + 1 < sampleIndexEnd
+            && features(sampleIndices[thresholdIndexLoopVar], fi) 
+            == features(sampleIndices[thresholdIndexLoopVar + 1], fi)) {                
+                const Label label = labels(sampleIndices[thresholdIndexLoopVar]);
+                if (label >= numbersOfLabelsForSplit[0].size() || label >= numbersOfLabelsForSplit[1].size()) {
+                    size_t newSize = label + 1;
+                    if (numbersOfLabelsForSplit[0].size() < newSize) numbersOfLabelsForSplit[0].resize(newSize, 0);
+                    if (numbersOfLabelsForSplit[1].size() < newSize) numbersOfLabelsForSplit[1].resize(newSize, 0);
+                }
                 ++numbersOfElements[0];
                 --numbersOfElements[1];
-                ++numbersOfLabels[0][label];
-                --numbersOfLabels[1][label];
-                ++thresholdIndex;
+                ++numbersOfLabelsForSplit[0][label];
+                --numbersOfLabelsForSplit[1][label];
+                ++thresholdIndexLoopVar;
             }
 
-            // increment
             {
-                const size_t label = labels(sampleIndices[thresholdIndex]);
+                const Label label = labels(sampleIndices[thresholdIndexLoopVar]);
+                 if (label >= numbersOfLabelsForSplit[0].size() || label >= numbersOfLabelsForSplit[1].size()) {
+                    size_t newSize = label + 1;
+                    if (numbersOfLabelsForSplit[0].size() < newSize) numbersOfLabelsForSplit[0].resize(newSize, 0);
+                    if (numbersOfLabelsForSplit[1].size() < newSize) numbersOfLabelsForSplit[1].resize(newSize, 0);
+                }
                 ++numbersOfElements[0];
                 --numbersOfElements[1];
-                ++numbersOfLabels[0][label];
-                --numbersOfLabels[1][label];
+                ++numbersOfLabelsForSplit[0][label];
+                --numbersOfLabelsForSplit[1][label];
             }
-            ++thresholdIndex; 
-            if(thresholdIndex == sampleIndexEnd) {
+            ++thresholdIndexLoopVar; 
+            if(thresholdIndexLoopVar == sampleIndexEnd) {
                 break;
             }
 
-            // count numbers of distinctly labeled pairs for both sets
-            assert(numbersOfLabels[0].size() == numbersOfLabels[1].size());
+            assert(numbersOfLabelsForSplit[0].size() == numbersOfLabelsForSplit[1].size());
             size_t numbersOfDistinctPairs[] = {0, 0};
-            for(size_t s = 0; s < 2; ++s) // set 0 and 1
-            for(size_t k = 0; k < numbersOfLabels[s].size(); ++k)
-            for(size_t m = k + 1; m < numbersOfLabels[s].size(); ++m) {
+            for(size_t s = 0; s < 2; ++s) 
+            for(size_t k_label = 0; k_label < numbersOfLabelsForSplit[s].size(); ++k_label)
+            for(size_t m_label = k_label + 1; m_label < numbersOfLabelsForSplit[s].size(); ++m_label) {
                 numbersOfDistinctPairs[s] += 
-                    numbersOfLabels[s][k] * numbersOfLabels[s][m];
+                    numbersOfLabelsForSplit[s][k_label] * numbersOfLabelsForSplit[s][m_label];
             }
 
-            // compute Gini coefficients for both sets
             double giniCoefficients[2];
             for(size_t s = 0; s < 2; ++s) {
                 if(numbersOfElements[s] < 2) {
@@ -529,41 +562,68 @@ DecisionNode<FEATURE, LABEL>::learn(
                 else {
                     giniCoefficients[s] = 
                         static_cast<double>(numbersOfDistinctPairs[s])
-                        / (numbersOfElements[s] * (numbersOfElements[s] - 1));
+                        / (static_cast<double>(numbersOfElements[s]) * (numbersOfElements[s] - 1));
                 }
             }
 
             double sumOfginiCoefficients = giniCoefficients[0] + giniCoefficients[1];
-            /*
-            std::cout << "fi: " << fi
-                << ", threshold index: " << thresholdIndex
-                << ", threshold: " << features(sampleIndices[thresholdIndex], fi)
-                << ", gini: " << sumOfginiCoefficients;
-            */
             if(sumOfginiCoefficients < optimalSumOfGiniCoefficients) {
                 optimalSumOfGiniCoefficients = sumOfginiCoefficients;
-                optimalFeatureIndex = fi;
-                optimalThreshold = features(sampleIndices[thresholdIndex], fi); 
-                optimalThresholdIndex = thresholdIndex;
-                // std::cout << ", new optimum";
+                currentOptimalFeatureIndex = fi;
+                currentOptimalThreshold = features(sampleIndices[thresholdIndexLoopVar], fi); 
+                currentOptimalThresholdIndex = thresholdIndexLoopVar;
             }
-            // std::cout << std::endl;
         }
         for(size_t s = 0; s < 2; ++s) {
-            std::fill(numbersOfLabels[s].begin(), numbersOfLabels[s].end(), 0);
+            std::fill(numbersOfLabelsForSplit[s].begin(), numbersOfLabelsForSplit[s].end(), 0);
         }
     }
-    threshold_ = optimalThreshold;
-    featureIndex_ = optimalFeatureIndex;
 
-    // sort data wrt optimal feature
+    if (optimalSumOfGiniCoefficients == std::numeric_limits<double>::infinity()) {
+        // No effective split found. Make this node a leaf.
+        isLeaf_ = true;
+        std::map<Label, size_t> localLabelCounts;
+        for (size_t k = sampleIndexBegin; k < sampleIndexEnd; ++k) {
+            localLabelCounts[labels(sampleIndices[k])]++;
+        }
+        
+        Label majorityLabelValue = labels(sampleIndices[sampleIndexBegin]); // Default
+        size_t maxCount = 0;
+        // Ensure there's at least one sample before iterating map (already asserted by sampleIndexBegin < sampleIndexEnd)
+        for (const auto& pair : localLabelCounts) {
+            if (pair.second > maxCount) {
+                maxCount = pair.second;
+                majorityLabelValue = pair.first;
+            }
+        }
+        label_ = majorityLabelValue;
+        return 0; // Leaf nodes return 0
+    }
+
+    // A split was found
+    this->featureIndex_ = currentOptimalFeatureIndex;
+    this->threshold_ = currentOptimalThreshold;
+
     std::sort(
         sampleIndices.begin() + sampleIndexBegin, 
         sampleIndices.begin() + sampleIndexEnd, 
-        ComparisonByFeature(features, optimalFeatureIndex)
+        ComparisonByFeature(features, this->featureIndex_)
     );
     
-    return optimalThresholdIndex;
+    return currentOptimalThresholdIndex;
+}
+
+template<class FEATURE, class LABEL>
+template<class RandomEngine>
+inline void 
+DecisionNode<FEATURE, LABEL>::sampleSubsetWithoutReplacement(
+    const size_t size,
+    const size_t subsetSize,
+    std::vector<size_t>& indices,
+    RandomEngine& randomEngine
+) {
+    std::vector<size_t> buffer;
+    sampleSubsetWithoutReplacement(size, subsetSize, indices, randomEngine, buffer);
 }
 
 template<class FEATURE, class LABEL>
@@ -586,7 +646,6 @@ DecisionNode<FEATURE, LABEL>::sampleSubsetWithoutReplacement(
     }
 
     // draw "subsetSize" indices without replacement
-    #pragma omp critical
     for(size_t j = 0; j < subsetSize; ++j) {
         std::uniform_int_distribution<size_t> distribution(0, size - j - 1);
         const size_t index = distribution(randomEngine);
@@ -925,8 +984,6 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
 
     clear();
     decisionTrees_.resize(numberOfDecisionTrees);
-
-    #pragma omp parallel for schedule(guided)
     for(ptrdiff_t treeIndex = 0; treeIndex < static_cast<ptrdiff_t>(decisionTrees_.size()); ++treeIndex) {
         std::vector<size_t> sampleIndices(numberOfSamples);
         sampleBootstrap(numberOfSamples, sampleIndices, randomEngine);
@@ -958,7 +1015,7 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
     const size_t numberOfSamples = features.shape(0);
     const size_t numberOfFeatures = features.shape(1);
     std::fill(labelProbabilities.begin(), labelProbabilities.end(), Probability());
-    #pragma omp parallel for schedule(dynamic)
+    
     for(ptrdiff_t treeIndex = 0; treeIndex < static_cast<ptrdiff_t>(decisionTrees_.size()); ++treeIndex) {
         std::vector<Label> labels(numberOfSamples);
         const DecisionTreeType& decisionTree = decisionTrees_[treeIndex];
@@ -968,11 +1025,11 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
             if(label >= labelProbabilities.shape(1)) {
                 throw std::runtime_error("labelProbabilities.shape(1) does not match the number of labels.");
             }
-            #pragma omp atomic
+           
             ++labelProbabilities(sampleIndex, label);
         }
     }
-    #pragma omp parallel for
+    
     for(ptrdiff_t j = 0; j < static_cast<ptrdiff_t>(labelProbabilities.size()); ++j) {
         labelProbabilities(j) /= decisionTrees_.size();
     }
@@ -1000,7 +1057,7 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::sampleBootstrap(
     RandomEngine& randomEngine
 ) {
     indices.resize(size);    
-    #pragma omp critical
+   
     for(size_t j = 0; j < size; ++j) {
         std::uniform_int_distribution<size_t> distribution(0, size - 1);
         indices[j] = distribution(randomEngine);

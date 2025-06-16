@@ -1,10 +1,10 @@
 {
     "configurations": [
         {
-            "name": "Debug test_utils",
+            "name": "Launch ${fileBasenameNoExtension}",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/test_utils",
+            "program": "${workspaceFolder}/build/bin/${fileBasenameNoExtension}",
             "args": [],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -23,7 +23,36 @@
                     "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "Cmake Build test_utils",
+            "preLaunchTask": "Cmake Build ${fileBasenameNoExtension}",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Debug sq_random_forest",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/sq_random_forest",
+            "args": [
+                "${workspaceFolder}/data/iris/train_iris.csv",
+                "${workspaceFolder}/data/iris/test_iris.csv"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Cmake Build sq_random_forest",
             "miDebuggerPath": "/usr/bin/gdb"
         }
     ],
