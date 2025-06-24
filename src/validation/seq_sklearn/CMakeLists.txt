@@ -5,27 +5,12 @@ set(IRIS_DATASET "${IRIS_DIR}/iris.data")
 message(STATUS "Checking required Python packages...")
 message(STATUS "CMAKE_CURRENT_SOURCE_DIR: ${CMAKE_CURRENT_SOURCE_DIR}")
 
-option(Python3_EXECUTABLE "Path to Python 3 executable" "python3")
-find_package(Python3 COMPONENTS Interpreter REQUIRED)
-if(NOT Python3_FOUND)
-    message(FATAL_ERROR "Python3 not found. Please ensure you have Python3 installed.")
-endif()
-
-execute_process(
-    COMMAND ${Python3_EXECUTABLE} -c "import sklearn, numpy, pandas"
-    RESULT_VARIABLE python_check_result
-    OUTPUT_VARIABLE python_check_output
-    ERROR_VARIABLE python_check_error
-)
-
-if(python_check_result EQUAL 0)
-    message(STATUS "Required Python packages (scikit-learn, numpy, pandas) are installed.")
-else()
-    message(FATAL_ERROR "${Python3_EXECUTABLE} -  packages not found. Please install them with: pip install scikit-learn numpy pandas")
-endif()
-
 message(STATUS "Checking for Iris dataset...")
 if(NOT EXISTS "${IRIS_DATASET}")
+    if(NOT EXISTS "${DATA_DIR}")
+        message(STATUS "Creating data directory at ${DATA_DIR}...")
+        file(MAKE_DIRECTORY "${DATA_DIR}")
+    endif()
     message(STATUS "Iris dataset not found at ${IRIS_DATASET}. Downloading...")
     file(DOWNLOAD
         "https://archive.ics.uci.edu/static/public/53/iris.zip"

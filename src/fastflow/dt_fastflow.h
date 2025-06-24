@@ -68,193 +68,193 @@ namespace andres {
 namespace ml {
 
 /// A node in a decision tree.
-    template<class FEATURE, class LABEL>
-    class DecisionNode {
-    public:
-        typedef FEATURE Feature;
-        typedef LABEL Label;
+template<class FEATURE, class LABEL>
+class DecisionNode {
+public:
+    typedef FEATURE Feature;
+    typedef LABEL Label;
 
-        DecisionNode();
-        bool& isLeaf();
-        size_t& featureIndex();
-        Feature& threshold();
-        size_t& childNodeIndex(const size_t);
-        Label& label();
-        void deserialize(std::istream&);
+    DecisionNode();
+    bool& isLeaf();
+    size_t& featureIndex();
+    Feature& threshold();
+    size_t& childNodeIndex(const size_t);
+    Label& label();
+    void deserialize(std::istream&);
 
-        bool isLeaf() const;
-        size_t featureIndex() const;
-        Feature threshold() const;
-        size_t childNodeIndex(const size_t) const;
-        Label label() const;
-        template<class RandomEngine>
-            size_t learn(const andres::View<Feature>&, const andres::View<Label>&, 
-                std::vector<size_t>&, const size_t, const size_t, RandomEngine&);   
-        void serialize(std::ostream&) const;
+    bool isLeaf() const;
+    size_t featureIndex() const;
+    Feature threshold() const;
+    size_t childNodeIndex(const size_t) const;
+    Label label() const;
+    template<class RandomEngine>
+        size_t learn(const andres::View<Feature>&, const andres::View<Label>&, 
+            std::vector<size_t>&, const size_t, const size_t, RandomEngine&);   
+    void serialize(std::ostream&) const;
 
-    private:
-        struct ComparisonByFeature {
-            typedef size_t first_argument_type;
-            typedef size_t second_argument_type;
-            typedef bool result_type;
+private:
+    struct ComparisonByFeature {
+        typedef size_t first_argument_type;
+        typedef size_t second_argument_type;
+        typedef bool result_type;
 
-            ComparisonByFeature(
-                const andres::View<Feature>& features,
-                const size_t featureIndex
-            )
-                :   features_(features),
-                    featureIndex_(featureIndex)
-                {
-                    assert(featureIndex < features.shape(1));
-                }
-            bool operator()(const size_t j, const size_t k) const 
-                { 
-                    assert(j < features_.shape(0));
-                    assert(k < features_.shape(0));
-                    return features_(j, featureIndex_) < features_(k, featureIndex_);
-                }
+        ComparisonByFeature(
+            const andres::View<Feature>& features,
+            const size_t featureIndex
+        )
+            :   features_(features),
+                featureIndex_(featureIndex)
+            {
+                assert(featureIndex < features.shape(1));
+            }
+        bool operator()(const size_t j, const size_t k) const 
+            { 
+                assert(j < features_.shape(0));
+                assert(k < features_.shape(0));
+                return features_(j, featureIndex_) < features_(k, featureIndex_);
+            }
 
-            const andres::View<Feature>& features_;
-            const size_t featureIndex_;
-        };
-
-        template<class RandomEngine>
-            void sampleSubsetWithoutReplacement(const size_t, const size_t, 
-                std::vector<size_t>&, RandomEngine&
-            );
-
-        template<class RandomEngine>
-            void sampleSubsetWithoutReplacement(const size_t, const size_t, 
-                std::vector<size_t>&, RandomEngine&,
-                std::vector<size_t>&
-            );
-
-        template<typename T>
-        T read(std::istream& s, T)
-        {
-            T value;
-            s >> value;
-
-            return value;
-        }
-
-        unsigned char read(std::istream& s, unsigned char)
-        {
-            size_t value;
-            s >> value;
-
-            return value;
-        }
-
-        char read(std::istream& s, char)
-        {
-            ptrdiff_t value;
-            s >> value;
-
-            return value;
-        }
-
-        template<typename T>
-        void write(std::ostream& s, T value) const
-        {
-            s << value;
-        }
-
-        void write(std::ostream& s, unsigned char value) const
-        {
-            s << static_cast<size_t>(label_);
-        }
-
-        void write(std::ostream& s, char value) const
-        {
-            s << static_cast<ptrdiff_t>(label_);
-        }
-
-
-        size_t featureIndex_;
-        Feature threshold_;
-        size_t childNodeIndices_[2]; // 0 means <, 1 means >=
-        Label label_; 
-        bool isLeaf_;
+        const andres::View<Feature>& features_;
+        const size_t featureIndex_;
     };
 
-    /// A decision tree.
-    template<class FEATURE = double, class LABEL = unsigned char>
-    class DecisionTree {
-    public:
-        typedef FEATURE Feature;
-        typedef LABEL Label;
-        typedef DecisionNode<Feature, Label> DecisionNodeType;
+    template<class RandomEngine>
+        void sampleSubsetWithoutReplacement(const size_t, const size_t, 
+            std::vector<size_t>&, RandomEngine&
+        );
 
-        DecisionTree();
+    template<class RandomEngine>
+        void sampleSubsetWithoutReplacement(const size_t, const size_t, 
+            std::vector<size_t>&, RandomEngine&,
+            std::vector<size_t>&
+        );
+
+    template<typename T>
+    T read(std::istream& s, T)
+    {
+        T value;
+        s >> value;
+
+        return value;
+    }
+
+    unsigned char read(std::istream& s, unsigned char)
+    {
+        size_t value;
+        s >> value;
+
+        return value;
+    }
+
+    char read(std::istream& s, char)
+    {
+        ptrdiff_t value;
+        s >> value;
+
+        return value;
+    }
+
+    template<typename T>
+    void write(std::ostream& s, T value) const
+    {
+        s << value;
+    }
+
+    void write(std::ostream& s, unsigned char value) const
+    {
+        s << static_cast<size_t>(label_);
+    }
+
+    void write(std::ostream& s, char value) const
+    {
+        s << static_cast<ptrdiff_t>(label_);
+    }
+
+
+    size_t featureIndex_;
+    Feature threshold_;
+    size_t childNodeIndices_[2]; // 0 means <, 1 means >=
+    Label label_; 
+    bool isLeaf_;
+};
+
+/// A decision tree.
+template<class FEATURE = double, class LABEL = unsigned char>
+class DecisionTree {
+public:
+    typedef FEATURE Feature;
+    typedef LABEL Label;
+    typedef DecisionNode<Feature, Label> DecisionNodeType;
+
+    DecisionTree();
+    void learn(const andres::View<Feature>&, const andres::View<Label>&,
+        std::vector<size_t>&);
+    template<class RandomEngine>
         void learn(const andres::View<Feature>&, const andres::View<Label>&,
-            std::vector<size_t>&);
-        template<class RandomEngine>
-            void learn(const andres::View<Feature>&, const andres::View<Label>&,
-                std::vector<size_t>&, RandomEngine&);
-        void deserialize(std::istream&);
+            std::vector<size_t>&, RandomEngine&);
+    void deserialize(std::istream&);
 
-        size_t size() const; // number of decision nodes
-        void predict(const andres::View<Feature>&, std::vector<Label>&) const;
-        const DecisionNodeType& decisionNode(const size_t) const;
-        void serialize(std::ostream&) const;
+    size_t size() const; // number of decision nodes
+    void predict(const andres::View<Feature>&, std::vector<Label>&) const;
+    const DecisionNodeType& decisionNode(const size_t) const;
+    void serialize(std::ostream&) const;
 
-    private:    
-        struct TreeConstructionQueueEntry {
-            TreeConstructionQueueEntry(
-                const size_t nodeIndex = 0, 
-                const size_t sampleIndexBegin = 0,
-                const size_t sampleIndexEnd = 0,
-                const size_t thresholdIndex = 0
-            )
-            :   nodeIndex_(nodeIndex),
-                sampleIndexBegin_(sampleIndexBegin),
-                sampleIndexEnd_(sampleIndexEnd),
-                thresholdIndex_(thresholdIndex)
-            {}
+private:    
+    struct TreeConstructionQueueEntry {
+        TreeConstructionQueueEntry(
+            const size_t nodeIndex = 0, 
+            const size_t sampleIndexBegin = 0,
+            const size_t sampleIndexEnd = 0,
+            const size_t thresholdIndex = 0
+        )
+        :   nodeIndex_(nodeIndex),
+            sampleIndexBegin_(sampleIndexBegin),
+            sampleIndexEnd_(sampleIndexEnd),
+            thresholdIndex_(thresholdIndex)
+        {}
 
-            size_t nodeIndex_;
-            size_t sampleIndexBegin_;
-            size_t sampleIndexEnd_;
-            size_t thresholdIndex_;
-        };
-
-        std::vector<DecisionNodeType> decisionNodes_;
+        size_t nodeIndex_;
+        size_t sampleIndexBegin_;
+        size_t sampleIndexEnd_;
+        size_t thresholdIndex_;
     };
 
-    /// A bag of decision trees.
-    template<
-        class FEATURE = double, 
-        class LABEL = unsigned char, 
-        class PROBABILITY = double
-    >
-    class DecisionForest {
-    public:
-        typedef FEATURE Feature;
-        typedef LABEL Label;
-        typedef PROBABILITY Probability;
-        typedef DecisionTree<Feature, Label> DecisionTreeType;
+    std::vector<DecisionNodeType> decisionNodes_;
+};
 
-        DecisionForest();
-        void clear();    
+/// A bag of decision trees.
+template<
+    class FEATURE = double, 
+    class LABEL = unsigned char, 
+    class PROBABILITY = double
+>
+class DecisionForest {
+public:
+    typedef FEATURE Feature;
+    typedef LABEL Label;
+    typedef PROBABILITY Probability;
+    typedef DecisionTree<Feature, Label> DecisionTreeType;
+
+    DecisionForest();
+    void clear();    
+    void learn(const andres::View<Feature>&, const andres::View<Label>&,
+        const size_t = 255);
+    template<class RandomEngine>
         void learn(const andres::View<Feature>&, const andres::View<Label>&,
-            const size_t = 255);
-        template<class RandomEngine>
-            void learn(const andres::View<Feature>&, const andres::View<Label>&,
-                const size_t, RandomEngine&);
-        void deserialize(std::istream&);
+            const size_t, RandomEngine&);
+    void deserialize(std::istream&);
 
-        size_t size() const;
-        const DecisionTreeType& decisionTree(const size_t) const;
-        void predict(const andres::View<Feature>&, andres::Marray<Probability>&) const;
-        void serialize(std::ostream&) const;
+    size_t size() const;
+    const DecisionTreeType& decisionTree(const size_t) const;
+    void predict(const andres::View<Feature>&, andres::Marray<Probability>&) const;
+    void serialize(std::ostream&) const;
 
-    private:
-        template<class RandomEngine>
-            void sampleBootstrap(const size_t, std::vector<size_t>&, RandomEngine&);
+private:
+    template<class RandomEngine>
+        void sampleBootstrap(const size_t, std::vector<size_t>&, RandomEngine&);
 
-        std::vector<DecisionTreeType> decisionTrees_;
-    };
+    std::vector<DecisionTreeType> decisionTrees_;
+};
 
 // implementation of DecisionNode
 
@@ -699,7 +699,6 @@ DecisionTree<FEATURE, LABEL>::DecisionTree()
 :   decisionNodes_()
 {}
 
-
 /// Learns a decision tree as described by Leo Breiman (2001).
 ///
 /// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
@@ -938,7 +937,12 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::size() const {
     return decisionTrees_.size();
 }
 
-
+/// Learns a decision forest from labeled samples as described by Breiman (2001).
+///
+/// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
+/// \param labels A vector of labels, one for each sample.
+/// \param numberOfDecisionTrees Number of decision trees to be learned.
+///
 template<class FEATURE, class LABEL, class PROBABILITY>
 inline void 
 DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
@@ -976,7 +980,6 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
     if(features.shape(0) != labels.size()) {
         throw std::runtime_error("the number of samples does not match the size of the label vector.");
     }
-
     const size_t numberOfSamples = features.shape(0);
 
     clear();
@@ -1034,7 +1037,7 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
 
 /// Returns a decision tree.
 ///
-/// \param treeIndex Index of the decision tree.
+/// \param treeIndex Index of the decisio tree.
 ///
 template<class FEATURE, class LABEL, class PROBABILITY>
 inline const typename DecisionForest<FEATURE, LABEL, PROBABILITY>::DecisionTreeType& 

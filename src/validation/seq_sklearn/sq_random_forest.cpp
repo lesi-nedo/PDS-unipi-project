@@ -10,69 +10,7 @@
 #include "../../include/sequential/dt.h"
 #include "utils.h"
 
-// Utility function to calculate accuracy
-double calculateAccuracy(const std::vector<int>& predicted, const andres::View<int>& actual) {
-    if (predicted.size() != actual.size()) {
-        throw std::runtime_error("Predicted and actual labels size mismatch");
-    }
-    
-    size_t correct = 0;
-    for (size_t i = 0; i < predicted.size(); ++i) {
-        if (predicted[i] == actual(i)) {
-            ++correct;
-        }
-    }
-    return static_cast<double>(correct) / predicted.size();
-}
 
-// Convert probability predictions to class predictions
-std::vector<int> probabilitiesToPredictions(const andres::Marray<double>& probabilities) {
-    std::vector<int> predictions(probabilities.shape(0));
-    for (size_t i = 0; i < probabilities.shape(0); ++i) {
-        int maxClass = 0;
-        double maxProb = probabilities(i, 0);
-        for (size_t j = 1; j < probabilities.shape(1); ++j) {
-            if (probabilities(i, j) > maxProb) {
-                maxProb = probabilities(i, j);
-                maxClass = j;
-            }
-        }
-        predictions[i] = maxClass;
-    }
-    return predictions;
-}
-
-// Save predictions to file for Python comparison
-void savePredictionsToFile(const std::vector<int>& predictions, const std::string& filename) {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open file: " + filename);
-    }
-    
-    for (size_t i = 0; i < predictions.size(); ++i) {
-        file << predictions[i];
-        if (i < predictions.size() - 1) file << "\n";
-    }
-    file.close();
-}
-
-// Save probabilities to file for Python comparison
-void saveProbabilitiesToFile(const andres::Marray<double>& probabilities, const std::string& filename) {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot open file: " + filename);
-    }
-    
-    file << std::fixed << std::setprecision(6);
-    for (size_t i = 0; i < probabilities.shape(0); ++i) {
-        for (size_t j = 0; j < probabilities.shape(1); ++j) {
-            file << probabilities(i, j);
-            if (j < probabilities.shape(1) - 1) file << ",";
-        }
-        if (i < probabilities.shape(0) - 1) file << "\n";
-    }
-    file.close();
-}
 
 
 int main(int argc, char* argv[]) {

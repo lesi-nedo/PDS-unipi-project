@@ -1,10 +1,10 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2025.5.25)  1 JUN 2025 17:29
+This is pdfTeX, Version 3.141592653-2.6-1.40.25 (TeX Live 2023/Debian) (preloaded format=pdflatex 2024.5.25)  18 JUN 2025 22:01
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
  %&-line parsing enabled.
-**"/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/report/report.tex"
-(/home/lesi-nedo/Desktop/master/Second Semester/PDS/project/report/report.tex
+**/home/lesi-nedo/Desktop/master/first-year/second-semester/PDS/project/report/report
+(/home/lesi-nedo/Desktop/master/first-year/second-semester/PDS/project/report/report.tex
 LaTeX2e <2023-11-01> patch level 1
 L3 programming layer <2024-01-22>
 (/usr/share/texlive/texmf-dist/tex/latex/base/article.cls
@@ -31,22 +31,18 @@ Package: inputenc 2021/02/14 v1.3d Input encoding file
 Package: babel 2024/01/07 v24.1 The Babel package
 \babel@savecnt=\count195
 \U@D=\dimen141
-\l@unhyphenated=\language6
+\l@unhyphenated=\language89
  (/usr/share/texlive/texmf-dist/tex/generic/babel/txtbabel.def)
 \bbl@readstream=\read2
 \bbl@dirlevel=\count196
  (/usr/share/texlive/texmf-dist/tex/generic/babel-english/english.ldf
 Language: english 2017/06/06 v3.3r English support from the babel system
-Package babel Info: Hyphen rules for 'british' set to \l@english
-(babel)             (\language0). Reported on input line 82.
-Package babel Info: Hyphen rules for 'UKenglish' set to \l@english
-(babel)             (\language0). Reported on input line 83.
 Package babel Info: Hyphen rules for 'canadian' set to \l@english
 (babel)             (\language0). Reported on input line 102.
-Package babel Info: Hyphen rules for 'australian' set to \l@english
-(babel)             (\language0). Reported on input line 105.
-Package babel Info: Hyphen rules for 'newzealand' set to \l@english
-(babel)             (\language0). Reported on input line 108.
+Package babel Info: Hyphen rules for 'australian' set to \l@ukenglish
+(babel)             (\language72). Reported on input line 105.
+Package babel Info: Hyphen rules for 'newzealand' set to \l@ukenglish
+(babel)             (\language72). Reported on input line 108.
 )) (/usr/share/texlive/texmf-dist/tex/generic/babel/locale/en/babel-english.tex
 Package babel Info: Importing font and identification data for english
 (babel)             from babel-en.ini. Reported on input line 11.
@@ -425,18 +421,18 @@ Package rerunfilecheck Info: File `report.out' has not changed.
 (rerunfilecheck)             Checksum: 6CB81A97F2BEC4E90D36F7064CC7D5C0;196.
  ) 
 Here is how much of TeX's memory you used:
- 12068 strings out of 476171
- 184947 string characters out of 5795119
+ 12069 strings out of 474222
+ 184988 string characters out of 5748733
  1928975 words of memory out of 5000000
- 33899 multiletter control sequences out of 15000+600000
- 565823 words of font info for 64 fonts, out of 8000000 for 9000
- 14 hyphenation exceptions out of 8191
- 75i,11n,79p,1151b,491s stack positions out of 10000i,1000n,20000p,200000b,200000s
-</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti12.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1200.pfb>
-Output written on report.pdf (6 pages, 87101 bytes).
+ 34149 multiletter control sequences out of 15000+600000
+ 565992 words of font info for 65 fonts, out of 8000000 for 9000
+ 1141 hyphenation exceptions out of 8191
+ 75i,11n,79p,1156b,491s stack positions out of 10000i,1000n,20000p,200000b,200000s
+</usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti12.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt12.pfb></usr/share/texmf/fonts/type1/public/cm-super/sfrm1200.pfb>
+Output written on report.pdf (6 pages, 92283 bytes).
 PDF statistics:
- 76 PDF objects out of 1000 (max. 8388607)
- 55 compressed objects within 1 object stream
+ 82 PDF objects out of 1000 (max. 8388607)
+ 59 compressed objects within 1 object stream
  8 named destinations out of 1000 (max. 500000)
  17 words of extra memory for PDF output out of 10000 (max. 10000000)
 

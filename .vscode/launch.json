@@ -27,13 +27,13 @@
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
-            "name": "Debug sq_random_forest",
+            "name": "Debug fastflow",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/sq_random_forest",
+            "program": "${workspaceFolder}/build/bin/fastflow_impl",
             "args": [
-                "${workspaceFolder}/data/iris/train_iris.csv",
-                "${workspaceFolder}/data/iris/test_iris.csv"
+                "${workspaceFolder}/data/susy/train_susy.csv",
+                "${workspaceFolder}/data/susy/test_susy.csv"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -52,7 +52,62 @@
                     "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "Cmake Build sq_random_forest",
+            "preLaunchTask": "Cmake build fastflow_imp",
+            "miDebuggerPath": "/usr/bin/gdb"    
+        },
+        {
+            "name": "Debug sequential",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/sequential_impl",
+            "args": [
+                "${workspaceFolder}/data/susy/train_susy.csv",
+                "${workspaceFolder}/data/susy/test_susy.csv"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Cmake build sequential_impl",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Run RF validation",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "cmake --build . --target run_sequential_validation",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}/build/",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Build sq_random_forest validation",
             "miDebuggerPath": "/usr/bin/gdb"
         }
     ],

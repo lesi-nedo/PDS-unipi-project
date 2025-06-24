@@ -23,6 +23,7 @@ option(BUILD_OPENMP "Build OpenMP implementation" ON)
 option(BUILD_MPI "Build MPI implementation with FastFlow" ON)
 option(BUILD_TESTS "Build tests" ON)
 option(BUILD_VALSEQ "Build sequential Random Forset and Validate against Scikit-learn One" OFF)
+option(BUILD_SEQUENTIAL "Build Sequential Random Forset" OFF)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -33,6 +34,25 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 find_package(Threads REQUIRED)
 if(NOT THREADS_FOUND)
     message(FATAL_ERROR "Pthreads not found. Please ensure you have pthreads installed.")
+endif()
+
+option(Python3_EXECUTABLE "Path to Python 3 executable" "python3")
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+if(NOT Python3_FOUND)
+    message(FATAL_ERROR "Python3 not found. Please ensure you have Python3 installed.")
+endif()
+
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import sklearn, numpy, pandas"
+    RESULT_VARIABLE python_check_result
+    OUTPUT_VARIABLE python_check_output
+    ERROR_VARIABLE python_check_error
+)
+
+if(python_check_result EQUAL 0)
+    message(STATUS "Required Python packages (scikit-learn, numpy, pandas) are installed.")
+else()
+    message(FATAL_ERROR "${Python3_EXECUTABLE} -  packages not found. Please install them with: pip install scikit-learn numpy pandas")
 endif()
 
 if(BUILD_RFCOMPAR)
@@ -175,6 +195,8 @@ if(BUILD_FASTFLOW)
     set_target_properties(fastflow PROPERTIES EXPORT_NAME ff)
     add_library(ff::ff ALIAS fastflow)
     message(STATUS "FastFlow library configured successfully.")
+
+    add_subdirectory(src/fastflow)
     
 else()
     message(STATUS "FastFlow not requested, skipping FastFlow configuration.")
@@ -190,7 +212,15 @@ endif()
 if(BUILD_VALSEQ)
     message(STATUS "Building sequential Random Forset and validation against Scikit-learn")
     add_subdirectory(src/validation/seq_sklearn)
-endif()    
+endif()
+
+if(BUILD_SEQUENTIAL)
+    message(STATUS "Building Sequential Random Forset")
+    add_subdirectory(src/sequential)
+else()
+    message(STATUS "Sequential Random Forset not requested, skipping sequential implementation.")
+endif()
+
 
 message (STATUS "-- Configuration Summary --")
 message (STATUS "CMake version: ${CMAKE_VERSION}")

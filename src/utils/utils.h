@@ -14,6 +14,10 @@
 #include <filesystem>
 #include <cmath>
 #include <iomanip>
+#include <sys/resource.h>
+#include <unordered_map>
+#include <algorithm>
+
 
 template<typename T>
 concept Primitive = std::is_arithmetic_v<T>;
@@ -56,7 +60,7 @@ concept Integral = std::is_integral_v<T>;
  * @endcode
  */
 template<Primitive Feature>                    
-std::pair<andres::Marray<Feature>, andres::Marray<int>> loadCSVToMarray(const std::string_view filename, const char delimeter) {
+std::pair<andres::Marray<Feature>, andres::Marray<int>> loadCSVToMarray(const std::string_view filename, const char delimeter=',', int max_rows=-1) {
 
     std::ifstream file(filename.data());
     if (!file.is_open()) {
@@ -112,6 +116,11 @@ std::pair<andres::Marray<Feature>, andres::Marray<int>> loadCSVToMarray(const st
     if (hasHeader) {
         std::getline(file, firstLine); // Skip header line
     }
+
+    if (max_rows == 0) {
+        max_rows = -1; // No limit
+    }
+    int rowCount = 0;
     while (std::getline(file, firstLine)) {
         std::string_view lineView(firstLine);
         auto tokens = std::views::split(lineView, delimeter);
@@ -132,6 +141,10 @@ std::pair<andres::Marray<Feature>, andres::Marray<int>> loadCSVToMarray(const st
         }
         if (!row.empty()) {
             rows.push_back(std::move(row));
+        }
+        rowCount++;
+        if (max_rows > 0 && rowCount >= max_rows) {
+            break; // Stop reading if max_rows limit is reached
         }
     }
 
@@ -284,5 +297,66 @@ void saveMarrayToCSV(const andres::Marray<Feature>& features,
  * @return The number of unique labels
  */
 size_t countUniqueLabels(const andres::Marray<int>& labels);
+
+/**
+ * @brief Convert probability predictions to class predictions
+ *  @param probabilities The Marray containing probability predictions (2D array: samples x classes)
+ * @return A vector of class predictions
+ *  @throws std::runtime_error If the probabilities array is empty
+ */
+std::vector<int> probabilitiesToPredictions(const andres::Marray<double>& probabilities);
+
+/**
+ * @brief Calculate the accuracy of predictions against actual labels
+ * @param predicted A vector of predicted class labels
+ * @param actual A View containing actual class labels
+ * @return The accuracy as a double value between 0.0 and 1.0
+ * @throws std::runtime_error If the sizes of predicted and actual labels do not match
+ */
+double calculateAccuracy(const std::vector<int>& predicted, const andres::View<int>& actual);
+
+/**
+ * @brief Save predictions to a text file
+ * @param predictions A vector of predicted class labels
+ * @param filename The path and name of the output file
+ * @throws std::runtime_error If the file cannot be opened for writing
+ */
+void savePredictionsToFile(const std::vector<int>& predictions, const std::string& filename);
+
+/**
+ * @brief Save probability predictions to a CSV file
+ * @param probabilities The Marray containing probability predictions (2D array: samples x classes)
+ * @param filename The path and name of the output CSV file
+ * @throws std::runtime_error If the file cannot be opened for writing
+ */
+void saveProbabilitiesToFile(const andres::Marray<double>& probabilities, const std::string& filename);
+
+/**
+ * @brief Count unique labels in a label array
+ * @param labels The Marray containing label data
+ * @return The number of unique labels
+ * @throws std::runtime_error If the labels array is empty
+ */
+size_t countUniqueLabels(const andres::Marray<int>& labels);
+
+/**
+* @brief Get the current memory usage of the process in MB
+* @return Memory usage in MB
+*/
+
+long getMemoryUsageMB();
+
+/**
+ * @brief Calculate precision, recall, and F1 score for predictions against true labels
+ * @param predictions A vector of predicted class labels
+ * @param true_labels A vector of true class labels
+ * @return A tuple containing precision, recall, and F1 score as doubles
+ * @throws std::invalid_argument If predictions and true_labels have different sizes
+ * 
+ * 
+ */
+std::tuple<double, double, double> calculatePrecisionRecallF1(
+    const std::vector<int>& predictions, 
+    const andres::Marray<int>& true_labels);
 
 #endif
