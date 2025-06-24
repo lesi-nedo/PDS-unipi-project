@@ -1,8 +1,0 @@
-# ninja log v5
-3814	3979	1749153448359011185	bin/test_utils	27f97b46634549ff
-3	3814	1749153448193010160	src/tests/CMakeFiles/test_utils.dir/utils/test_utils.cpp.o	4a89b4cb70952c63
-4	1605	1749153445986996543	src/tests/CMakeFiles/test_utils.dir/__/utils/utils.cpp.o	7595a1788096d8fc
-0	4	0	clean	ca91ab860e8b0f7a
-4	1501	1749153653388294967	src/tests/CMakeFiles/test_utils.dir/__/utils/utils.cpp.o	7595a1788096d8fc
-4	3665	1749153655549308666	src/tests/CMakeFiles/test_utils.dir/utils/test_utils.cpp.o	4a89b4cb70952c63
-3665	3826	1749153655711309693	bin/test_utils	27f97b46634549ff

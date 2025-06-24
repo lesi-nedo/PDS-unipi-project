@@ -36,7 +36,7 @@ if(NOT THREADS_FOUND)
     message(FATAL_ERROR "Pthreads not found. Please ensure you have pthreads installed.")
 endif()
 
-option(Python3_EXECUTABLE "Path to Python 3 executable" "python3")
+
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 if(NOT Python3_FOUND)
     message(FATAL_ERROR "Python3 not found. Please ensure you have Python3 installed.")

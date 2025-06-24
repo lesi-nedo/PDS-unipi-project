@@ -158,7 +158,7 @@
         },
         {
             "type": "shell",
-            "label": "Build sq_random_forest validation",
+            "label": "Cmake build sq_random_forest",
             "dependsOrder": "sequence",
             "dependsOn": [
                 "CMake Configure sq_random_forest",

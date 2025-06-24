@@ -85,13 +85,17 @@
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
-            "name": "Run RF validation",
+            "name": "Debug sq_random_forest validation",
             "type": "cppdbg",
             "request": "launch",
-            "program": "cmake --build . --target run_sequential_validation",
-            "args": [],
+            "program": "${workspaceFolder}/build/bin/sq_random_forest",
+            "args": [
+                // NOTE: Update these paths if your preprocessing script generates different filenames
+                "${workspaceFolder}/data/iris/train_iris.csv",
+                "${workspaceFolder}/data/iris/test_iris.csv"
+            ],
             "stopAtEntry": false,
-            "cwd": "${workspaceFolder}/build/",
+            "cwd": "${workspaceFolder}",
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
@@ -107,7 +111,7 @@
                     "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "Build sq_random_forest validation",
+            "preLaunchTask": "Cmake build sq_random_forest",
             "miDebuggerPath": "/usr/bin/gdb"
         }
     ],

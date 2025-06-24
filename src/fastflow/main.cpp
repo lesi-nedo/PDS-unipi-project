@@ -1,5 +1,7 @@
-#include "../../include/sequential/marray.h"
+#include "marray.h"
 #include "utils.h"
+#include "dt_fastflow.h"
+#include "ff_impl_config.h"
 
 int main(int argc, char* argv[]) {
     if (argc != 3) {
@@ -11,11 +13,30 @@ int main(int argc, char* argv[]) {
 
     std::string train_dataset = argv[1];
     std::string test_dataset = argv[2];
-    auto [features_train, labels_train] = loadCSVToMarray<double>(train_dataset,',', 1000);
-    auto [features_test, labels_test] = loadCSVToMarray<double>(test_dataset, ',', 1000);
 
-    std::cout << "Train Features shape: " << features_train.shape(0) << " x " << features_train.shape(1) << std::endl;
-    std::cout << "Train Labels shape: " << labels_train.shape(0) << std::endl;
-    std::cout << "Test Features shape: " << features_test.shape(0) << " x " << features_test.shape(1) << std::endl;
-    std::cout << "Test Labels shape: " << labels_test.shape(0) << std::endl;
+    auto curr_path = std::filesystem::current_path();
+    std::cout << "CURRENT WORKING DIRECTORY: " << curr_path << std::endl;
+    
+    if (curr_path.filename() != "project") {
+        std::cerr << "Error: Please run this program from the 'project' directory." << std::endl;
+        return 1;
+    }
+    const std::string results_path = curr_path / "results" / "fastflow_impl" / "";
+
+    ff_ml::DecisionForest<double, int, double> rf;
+    const int randomSeed = 42; // Fixed seed for reproducibility
+    const std::vector<size_t> samples_perTree = FF_SAMPLES_PER_TREE;
+    const std::vector<size_t> tree_counts = FF_TREE_COUNTS;
+
+    try {
+        run_test<double, int, double>(tree_counts, samples_perTree, 
+                 std::string_view(train_dataset), 
+                 std::string_view(test_dataset), 
+                 results_path, rf, randomSeed);
+    } catch (const std::runtime_error& e) {
+        std::cerr << "Error during testing: " << e.what() << std::endl;
+        return 1;
+    }
+    
+
 }
