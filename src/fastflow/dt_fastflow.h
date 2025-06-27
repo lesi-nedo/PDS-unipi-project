@@ -58,9 +58,13 @@
 #include <iterator>
 #include <iostream>
 #include <map>
+#include <tuple>
+#include <immintrin.h>
+
 
 #include "ff/ff.hpp"
 #include "ff/parallel_for.hpp"
+#include "ff/farm.hpp"
 
 #include "./ff_impl_config.h"
 
@@ -71,6 +75,54 @@ namespace andres {
     
 /// Machine Learning.
 namespace ff_ml {
+
+class OptimizedGiniCalculator {
+public:
+    // Calculates sum_{i<j} counts[i]*counts[j] using the identity:
+    // sum_{i<j} c_i*c_j = ( (sum c_i)^2 - sum(c_i^2) ) / 2
+    // This is much faster than a nested loop.
+    static size_t computeDistinctPairs(const std::vector<size_t>& labelCounts, size_t totalSamples) {
+        if (totalSamples < 2) {
+            return 0;
+        }
+        
+        // 1. Calculate sum of squares (vectorized with AVX2)
+        // We use doubles for floating point SIMD instructions. This is safe as long
+        // as counts do not exceed 2^53, which is highly unlikely for sample counts.
+        __m256d sum_sq_vec = _mm256_setzero_pd();
+        size_t i = 0;
+        
+        // Process 4 counts (as doubles) at a time
+        for (; i + 4 <= labelCounts.size(); i += 4) {
+            // Manual conversion from size_t to double for AVX2
+            double vals[4] = {
+                static_cast<double>(labelCounts[i]), static_cast<double>(labelCounts[i+1]),
+                static_cast<double>(labelCounts[i+2]), static_cast<double>(labelCounts[i+3])
+            };
+            __m256d counts_pd = _mm256_loadu_pd(vals);
+
+            // Fused-Multiply-Add can be slightly faster if available and applicable
+            sum_sq_vec = _mm256_add_pd(sum_sq_vec, _mm256_mul_pd(counts_pd, counts_pd));
+        }
+
+        // Horizontal sum of the vector's partial sums
+        alignas(32) double sum_sq_parts[4];
+        _mm256_store_pd(sum_sq_parts, sum_sq_vec);
+        double sum_of_squares = sum_sq_parts[0] + sum_sq_parts[1] + sum_sq_parts[2] + sum_sq_parts[3];
+
+        // Handle remaining elements not processed by SIMD
+        for (; i < labelCounts.size(); ++i) {
+            sum_of_squares += static_cast<double>(labelCounts[i]) * static_cast<double>(labelCounts[i]);
+        }
+
+        // 2. Use the identity to find the number of distinct pairs
+        double totalSamples_d = static_cast<double>(totalSamples);
+        double total_pairs_d = ((totalSamples_d * totalSamples_d) - sum_of_squares) / 2.0;
+        
+        // Add 0.5 for proper rounding before casting to size_t
+        return static_cast<size_t>(total_pairs_d + 0.5);
+    }
+};
 
 /// A node in a decision tree.
 template<class FEATURE, class LABEL>
@@ -120,6 +172,14 @@ private:
 
         const andres::View<Feature>& features_;
         const size_t featureIndex_;
+    };
+
+    struct SortItem {
+        Feature featureValue;
+        size_t sampleIndex;
+        bool operator<(const SortItem& other) const {
+                return featureValue < other.featureValue;
+        }
     };
 
     template<class RandomEngine>
@@ -185,14 +245,23 @@ private:
 /// A decision tree.
 template<class FEATURE = double, class LABEL = unsigned char>
 class DecisionTree {
+    
 public:
     typedef FEATURE Feature;
     typedef LABEL Label;
     typedef DecisionNode<Feature, Label> DecisionNodeType;
 
+    #define LEFT_NODE 0
+    #define RIGHT_NODE 1
+    using task_t = std::tuple<int, size_t, size_t, size_t, size_t>;
+    using in_t = std::tuple<DecisionNodeType, int, size_t, size_t, size_t, size_t, size_t>;
+
+
     DecisionTree();
     void learn(const andres::View<Feature>&, const andres::View<Label>&,
             std::vector<size_t>&, const int = 0);
+    void learnWithFarm(const andres::View<Feature>&, const andres::View<Label>&,
+            std::vector<size_t>&, const int = 0, const int numWorkers = 1);
     void deserialize(std::istream&);
 
     size_t size() const; // number of decision nodes
@@ -219,6 +288,142 @@ private:
         size_t sampleIndexEnd_;
         size_t thresholdIndex_;
     };
+    
+    struct SourceSink: ff::ff_monode_t<in_t,task_t> {
+        
+
+        SourceSink(
+            const andres::View<Feature>& features,
+            const andres::View<Label>& labels,
+            std::vector<size_t>& sampleIndices,
+            std::vector<DecisionNodeType>& decisionNodes,
+            const int& randomSeed
+        )
+        :   features_(features),
+            labels_(labels),
+            sampleIndices_(sampleIndices),
+            randomSeed_(randomSeed),
+            decisionNodes_(decisionNodes)
+        {
+            // std::cout << "Starting decision tree construction." << std::endl;
+            assert(decisionNodes_.empty());
+
+            {
+                decisionNodes_.emplace_back();
+                auto thresholdIndex = decisionNodes_.back().learn(
+                    features_, labels_, sampleIndices_, 0, sampleIndices_.size(), randomSeed_
+                );
+                if(!decisionNodes_.back().isLeaf()) {
+                    queue_.emplace(0, 0, sampleIndices_.size(), thresholdIndex);
+                }
+            }
+        }
+
+        task_t* svc(in_t* values)  {
+
+            if(values != nullptr) {
+                tasksInFlight_.fetch_sub(1);
+                auto& [newNode, nodeType, nodeIndexParent, nodeIndexChild, sampleIndexBegin, sampleIndexEnd, thresholdIndex] = *values;
+                decisionNodes_[nodeIndexChild] = std::move(newNode);
+                if(nodeType == LEFT_NODE) {
+                    decisionNodes_[nodeIndexParent].childNodeIndex(LEFT_NODE) = nodeIndexChild;
+                } else if(nodeType == RIGHT_NODE) {
+                    decisionNodes_[nodeIndexParent].childNodeIndex(RIGHT_NODE) = nodeIndexChild;
+                } else {
+                    delete values;
+                    throw std::runtime_error("Invalid node type in decision tree source sink.");
+                }
+
+                if(!decisionNodes_[nodeIndexChild].isLeaf()) {
+                    queue_.emplace(nodeIndexChild, sampleIndexBegin, sampleIndexEnd, thresholdIndex);
+                }
+                delete values;
+            }
+
+            if(queue_.empty()) {
+                if(tasksInFlight_ == 0){
+                    this->broadcast_task(this->EOS);
+                    // std::cout << "Decision tree construction finished." << std::endl;
+                }
+                return this->GO_ON;
+            }
+            auto entry = queue_.front();
+            queue_.pop();
+
+            auto nodeIndexNewLeft = decisionNodes_.size();
+            decisionNodes_.emplace_back();
+            
+            auto nodeIndexNewRight = decisionNodes_.size();
+            decisionNodes_.emplace_back();
+
+            this->ff_send_out(
+                new task_t(LEFT_NODE, entry.nodeIndex_, nodeIndexNewLeft, entry.sampleIndexBegin_, entry.thresholdIndex_)
+            );
+            tasksInFlight_.fetch_add(1);
+            this->ff_send_out(
+                new task_t(RIGHT_NODE, entry.nodeIndex_, nodeIndexNewRight, entry.thresholdIndex_, entry.sampleIndexEnd_)
+            );
+            tasksInFlight_.fetch_add(1);
+            return this->GO_ON;
+        }
+
+        void svc_end()  {
+            if(decisionNodes_.empty()) {
+                throw std::runtime_error("No decision nodes were learned.");
+            }
+        }
+
+        const andres::View<Feature>& features_;
+        const andres::View<Label>& labels_;
+        std::vector<size_t>& sampleIndices_;
+        std::vector<DecisionNodeType>& decisionNodes_;
+        const int randomSeed_;
+        std::queue<TreeConstructionQueueEntry> queue_;
+        std::atomic<size_t> tasksInFlight_{0};
+    };
+
+     struct Worker: ff::ff_node_t<task_t, in_t> {
+        
+
+        Worker(
+            const andres::View<Feature>& features,
+            const andres::View<Label>& labels,
+            std::vector<size_t>& sampleIndices,
+            const int& randomSeed
+        )
+        :   features_(features),
+            labels_(labels),
+            sampleIndices_(sampleIndices),
+            randomSeed_(randomSeed)
+        {}
+
+
+        in_t* svc(task_t* task) {
+            auto [nodeType, nodeIndexParent, nodeIndexChild, sampleIndexBegin, sampleIndexEnd] = *task;
+            delete task;
+
+            DecisionNodeType newNode;
+            size_t thresholdIndex = newNode.learn(
+                features_, labels_, sampleIndices_,
+                sampleIndexBegin, sampleIndexEnd, randomSeed_
+            );
+
+            in_t* result = new in_t(
+                std::move(newNode), nodeType, nodeIndexParent, nodeIndexChild, 
+                sampleIndexBegin, sampleIndexEnd, thresholdIndex
+            );
+            this->ff_send_out(result);
+            return this->GO_ON;
+        }
+
+        const andres::View<Feature>& features_;
+        const andres::View<Label>& labels_;
+        std::vector<size_t>& sampleIndices_;
+        const int randomSeed_;
+        
+    };
+
+    
 
     std::vector<DecisionNodeType> decisionNodes_;
 };
@@ -448,6 +653,18 @@ DecisionNode<FEATURE, LABEL>::learn(
         return 0;
     }
 
+    Label max_label = 0;
+    if (sampleIndexBegin < sampleIndexEnd) {
+        max_label = labels(sampleIndices[sampleIndexBegin]);
+        for (size_t k = sampleIndexBegin + 1; k < sampleIndexEnd; ++k) {
+            if (labels(sampleIndices[k]) > max_label) {
+                max_label = labels(sampleIndices[k]);
+            }
+        }
+    }
+    const size_t numberOfClassesInSubset = static_cast<size_t>(max_label) + 1;
+    
+
     const size_t numberOfFeaturesToBeAssessed = 
         static_cast<size_t>(
             std::ceil(std::sqrt(
@@ -455,7 +672,9 @@ DecisionNode<FEATURE, LABEL>::learn(
             ))
         );
 
-    std::vector<size_t> featureIndicesBuffer(numberOfFeaturesToBeAssessed); 
+    std::vector<size_t> featureIndicesBuffer(numberOfFeaturesToBeAssessed);
+    std::vector<SortItem> sortBuffer;
+    
     std::vector<size_t> randomSampleBuffer; 
     auto randomEngine = 
         (randomSeed == 0) ? std::mt19937(std::random_device{}()) 
@@ -475,15 +694,32 @@ DecisionNode<FEATURE, LABEL>::learn(
     size_t currentOptimalFeatureIndex = 0; // Initialize
     Feature currentOptimalThreshold = Feature(); // Initialize
     size_t currentOptimalThresholdIndex = sampleIndexBegin; // Initialize
+    
 
     for(size_t j = 0; j < numberOfFeaturesToBeAssessed; ++j) {
         const size_t fi = featureIndicesBuffer[j];
 
-        std::sort(
-            sampleIndices.begin() + sampleIndexBegin, 
-            sampleIndices.begin() + sampleIndexEnd, 
-            ComparisonByFeature(features, fi)
-        );
+        // To improve cache performance, create a temporary vector of structs
+        // to hold feature values and indices, sort it, then update sampleIndices.
+        // This makes the sort operation much faster by avoiding strided memory access.
+        sortBuffer.clear();
+        const size_t numSamplesInNode = sampleIndexEnd - sampleIndexBegin;
+        sortBuffer.reserve(numSamplesInNode);
+        for (size_t k = sampleIndexBegin; k < sampleIndexEnd; ++k) {
+            sortBuffer.emplace_back(features(sampleIndices[k], fi), sampleIndices[k]);
+        }
+        std::sort(sortBuffer.begin(), sortBuffer.end());
+
+        // Update sampleIndices to reflect the new sorted order.
+        for (size_t k = 0; k < numSamplesInNode; ++k) {
+            sampleIndices[sampleIndexBegin + k] = sortBuffer[k].sampleIndex;
+        }
+
+        // std::sort(
+        //     sampleIndices.begin() + sampleIndexBegin, 
+        //     sampleIndices.begin() + sampleIndexEnd, 
+        //     ComparisonByFeature(features, fi)
+        // );
         #ifndef NDEBUG
         for(size_t k = sampleIndexBegin; k + 1 < sampleIndexEnd; ++k) {
             assert(
@@ -495,15 +731,15 @@ DecisionNode<FEATURE, LABEL>::learn(
         size_t numbersOfElements[] = {0, sampleIndexEnd - sampleIndexBegin};
         
         for(size_t s = 0; s < 2; ++s) { // Clear/resize for current feature
-            numbersOfLabelsForSplit[s].assign(*std::max_element(labels.begin(), labels.end()) + 1, 0);
+            numbersOfLabelsForSplit[s].assign(numberOfClassesInSubset, 0);
         }
 
         for(size_t k = sampleIndexBegin; k < sampleIndexEnd; ++k) {
             const Label label = labels(sampleIndices[k]);
-            if(label >= numbersOfLabelsForSplit[1].size()) { // Should be handled by pre-sizing
-                 numbersOfLabelsForSplit[0].resize(label + 1, 0);
-                 numbersOfLabelsForSplit[1].resize(label + 1, 0);
-            }
+            // if(label >= numbersOfLabelsForSplit[1].size()) { // Should be handled by pre-sizing
+            //      numbersOfLabelsForSplit[0].resize(label + 1, 0);
+            //      numbersOfLabelsForSplit[1].resize(label + 1, 0);
+            // }
             ++numbersOfLabelsForSplit[1][label];
         }
 
@@ -515,11 +751,11 @@ DecisionNode<FEATURE, LABEL>::learn(
             && features(sampleIndices[thresholdIndexLoopVar], fi) 
             == features(sampleIndices[thresholdIndexLoopVar + 1], fi)) {                
                 const Label label = labels(sampleIndices[thresholdIndexLoopVar]);
-                if (label >= numbersOfLabelsForSplit[0].size() || label >= numbersOfLabelsForSplit[1].size()) {
-                    size_t newSize = label + 1;
-                    if (numbersOfLabelsForSplit[0].size() < newSize) numbersOfLabelsForSplit[0].resize(newSize, 0);
-                    if (numbersOfLabelsForSplit[1].size() < newSize) numbersOfLabelsForSplit[1].resize(newSize, 0);
-                }
+                // if (label >= numbersOfLabelsForSplit[0].size() || label >= numbersOfLabelsForSplit[1].size()) {
+                //     size_t newSize = label + 1;
+                //     if (numbersOfLabelsForSplit[0].size() < newSize) numbersOfLabelsForSplit[0].resize(newSize, 0);
+                //     if (numbersOfLabelsForSplit[1].size() < newSize) numbersOfLabelsForSplit[1].resize(newSize, 0);
+                // }
                 ++numbersOfElements[0];
                 --numbersOfElements[1];
                 ++numbersOfLabelsForSplit[0][label];
@@ -529,11 +765,11 @@ DecisionNode<FEATURE, LABEL>::learn(
 
             {
                 const Label label = labels(sampleIndices[thresholdIndexLoopVar]);
-                 if (label >= numbersOfLabelsForSplit[0].size() || label >= numbersOfLabelsForSplit[1].size()) {
-                    size_t newSize = label + 1;
-                    if (numbersOfLabelsForSplit[0].size() < newSize) numbersOfLabelsForSplit[0].resize(newSize, 0);
-                    if (numbersOfLabelsForSplit[1].size() < newSize) numbersOfLabelsForSplit[1].resize(newSize, 0);
-                }
+                //  if (label >= numbersOfLabelsForSplit[0].size() || label >= numbersOfLabelsForSplit[1].size()) {
+                //     size_t newSize = label + 1;
+                //     if (numbersOfLabelsForSplit[0].size() < newSize) numbersOfLabelsForSplit[0].resize(newSize, 0);
+                //     if (numbersOfLabelsForSplit[1].size() < newSize) numbersOfLabelsForSplit[1].resize(newSize, 0);
+                // }
                 ++numbersOfElements[0];
                 --numbersOfElements[1];
                 ++numbersOfLabelsForSplit[0][label];
@@ -603,11 +839,19 @@ DecisionNode<FEATURE, LABEL>::learn(
     this->featureIndex_ = currentOptimalFeatureIndex;
     this->threshold_ = currentOptimalThreshold;
 
-    std::sort(
-        sampleIndices.begin() + sampleIndexBegin, 
-        sampleIndices.begin() + sampleIndexEnd, 
-        ComparisonByFeature(features, this->featureIndex_)
-    );
+    sortBuffer.clear();
+    for (size_t k = sampleIndexBegin; k < sampleIndexEnd; ++k) {
+        sortBuffer.emplace_back(features(sampleIndices[k], this->featureIndex_), sampleIndices[k]);
+    }
+
+    // 2. Sort: Sort the contiguous buffer. This is very fast due to data locality.
+    std::sort(sortBuffer.begin(), sortBuffer.end());
+
+    // 3. Scatter: Write the sorted indices back into the main sampleIndices vector.
+    const size_t numSamplesInNode = sampleIndexEnd - sampleIndexBegin;
+    for (size_t k = 0; k < numSamplesInNode; ++k) {
+        sampleIndices[sampleIndexBegin + k] = sortBuffer[k].sampleIndex;
+    }
     
     return currentOptimalThresholdIndex;
 }
@@ -813,6 +1057,58 @@ DecisionTree<FEATURE, LABEL>::learn(
     }
 }
 
+/// Learns a decision tree using FastFlow Farm for parallel node processing.
+///
+/// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
+/// \param labels A vector of labels, one for each sample.
+/// \param sampleIndices A sequence of indices of samples to be considered for learning. This vector is used by the function as a scratch-pad for sorting.
+/// \param randomSeed A random seed for the random number generator. If set to 0, a random seed will be generated automatically.
+/// \param numWorkers Number of workers for the farm (should be less than total available workers)
+///
+template<class FEATURE, class LABEL>
+void 
+DecisionTree<FEATURE, LABEL>::learnWithFarm(
+    const andres::View<Feature>& features,
+    const andres::View<Label>& labels,
+    std::vector<size_t>& sampleIndices, // input, will be sorted
+    const int randomSeed,
+    const int numWorkers
+) {
+    assert(decisionNodes_.size() == 0);
+    
+   SourceSink sourceSink(
+        features, labels, sampleIndices, decisionNodes_, randomSeed
+    );
+
+    // Initialize the farm with the source sink and workers
+    ff::ff_Farm<task_t, in_t> farm(
+        [&](){
+            std::vector<std::unique_ptr<ff::ff_node>> workers;
+            for(int i = 0; i < numWorkers; ++i) {
+                workers.push_back(
+                    std::make_unique<Worker>(features, labels, sampleIndices, randomSeed)
+                );
+            }
+            return std::move(workers);
+        } (),
+        sourceSink
+    );
+    
+    farm.remove_collector(); 
+    farm.wrap_around();
+    farm.set_scheduling_ondemand(); 
+
+    // Run the farm
+    if(farm.run_and_wait_end() < 0) {
+        throw std::runtime_error("Error during decision tree learning with Farm.");
+    }
+
+    // Check if any decision nodes were learned
+    if(decisionNodes_.empty()) {
+        throw std::runtime_error("No decision nodes were learned.");
+    }
+}
+
 /// Returns the number of decision nodes.
 ///
 template<class FEATURE, class LABEL>
@@ -920,7 +1216,8 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::size() const {
 }
 
 
-/// Learns a decision forest from labeled samples as described by Breiman (2001).
+/// Learns a decision forest from labeled samples using nested parallelism.
+/// Uses ParallelFor for tree-level parallelism and Farm for node-level parallelism.
 ///
 /// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
 /// \param labels A vector of labels, one for each sample.
@@ -945,20 +1242,67 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
         throw std::runtime_error("the number of samples does not match the size of the label vector.");
     }
     const size_t numberOfSamples = features.shape(0);
+    const size_t numberOfFeatures = features.shape(1);
 
+    // Decide on nested parallelism strategy based on problem size
+    bool useNestedParallelism =
+                                     (numberOfSamples > 20000) && 
+                                     (numberOfFeatures > 10) &&
+                                     (numberOfDecisionTrees > 1);
+
+    // Calculate worker distribution for nested parallelism
+   
+    const int totalCores = ff_numCores();
+    const int forestWorkers = FOR_NUM_WORKERS;
+    
+    int workersPerTree = 2;
+    if (useNestedParallelism) {
+        if (forestWorkers > 0) {
+            const int coresPerFarm = totalCores / forestWorkers;
+            const int potentialWorkers = std::min(FARM_NUM_WORKERS, coresPerFarm);
+            // Only enable the farm if it can run with at least 2 workers.
+            if (potentialWorkers >= 2) {
+                workersPerTree = potentialWorkers;
+            } else {
+                useNestedParallelism = false; // Disable nested parallelism if not enough workers
+            }
+        }
+    }
+
+    
+              
     clear();
     decisionTrees_.resize(numberOfDecisionTrees);
-    ff::ParallelFor pf (FOR_NUM_WORKERS, FOR_SPINWAIT, FOR_SPINBARRIER);
+    ff::ParallelFor pf(forestWorkers, FOR_SPINWAIT, FOR_SPINBARRIER);
     pf.parallel_for(
         0, static_cast<ptrdiff_t>(decisionTrees_.size()), 1, FOR_CHUNK_SIZE,
         [&](ptrdiff_t treeIndex) {
             std::vector<size_t> sampleIndices(numberOfSamples);
-            // Use a random engine with a fixed seed for reproducibility
-            std::mt19937 randomEngine((randomSeed == 0) ? std::random_device{}() : randomSeed);
+            
+            int tree_specific_seed = (randomSeed == 0) ? 0 : (randomSeed + treeIndex);
+            std::mt19937 randomEngine;
+            if (tree_specific_seed == 0) {
+                std::seed_seq seq{(unsigned int)std::random_device{}(), (unsigned int)treeIndex};
+                randomEngine.seed(seq);
+            } else {
+                randomEngine.seed(tree_specific_seed);
+            }
+            
             sampleBootstrap(numberOfSamples, sampleIndices, randomEngine);
-            decisionTrees_[treeIndex].learn(features, labels, sampleIndices, randomSeed);
-        }, FOR_NUM_WORKERS
-    );
+            // std::cout << "Using " << (useNestedParallelism ? "learning with farm" : "learning without farm") 
+            //           << " for tree " << treeIndex << std::endl; 
+            // Choose learning strategy based on nested parallelism decision
+            if (useNestedParallelism) {
+                decisionTrees_[treeIndex].learnWithFarm(
+                    features, labels, sampleIndices, tree_specific_seed, workersPerTree
+                );
+            } else {
+                decisionTrees_[treeIndex].learn(
+                    features, labels, sampleIndices, tree_specific_seed
+                );
+            }
+        }, forestWorkers
+    ); 
     // for(ptrdiff_t treeIndex = 0; treeIndex < static_cast<ptrdiff_t>(decisionTrees_.size()); ++treeIndex) {
     //     std::vector<size_t> sampleIndices(numberOfSamples);
     //     sampleBootstrap(numberOfSamples, sampleIndices, randomEngine?????);

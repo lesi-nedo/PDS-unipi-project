@@ -90,7 +90,10 @@ concept DecisionForestConceptSeed = requires(
  * @endcode
  */
 template<Primitive Feature>                    
-std::pair<andres::Marray<Feature>, andres::Marray<int>> loadCSVToMarray(const std::string_view filename, const char delimeter=',', int max_rows=-1) {
+std::pair<andres::Marray<Feature>, andres::Marray<int>> loadCSVToMarray(
+    const std::string_view filename, const char delimeter=',', int max_rows=-1,
+    const andres::CoordinateOrder order = andres::LastMajorOrder
+) {
 
     std::ifstream file(filename.data());
     if (!file.is_open()) {
@@ -190,7 +193,7 @@ std::pair<andres::Marray<Feature>, andres::Marray<int>> loadCSVToMarray(const st
     const size_t shape[] = {numRows, numFeatures};
 
     // Initialize arrays with proper default values
-    andres::Marray<Feature> features(shape, shape+2);
+    andres::Marray<Feature> features(shape, shape+2, Feature(), order);
     andres::Marray<int> labels(shape, shape+1); // Default label as 0
     std::map<std::string, int> labelMap;
     int nex_int_label_id = 0;
@@ -407,15 +410,15 @@ void run_test_impl(
     std::cout << "\nStarting performance evaluation loop..." << std::endl;
 
     for(const auto& samples : samples_per_tree) {
-        auto [features_train, labels_train] = loadCSVToMarray<double>(train_dt_path, ',', samples); 
-        auto [features_test, labels_test] = loadCSVToMarray<double>(test_dt_path, ',', samples);
+        auto [features_train, labels_train] = loadCSVToMarray<double>(train_dt_path, ',', samples, andres::FirstMajorOrder); 
+        auto [features_test, labels_test] = loadCSVToMarray<double>(test_dt_path, ',', samples, andres::LastMajorOrder);
         
         std::cout << "--- Loaded datasets ---" << std::endl ;
         std::cout << "Train Features shape: " << features_train.shape(0) << " x " << features_train.shape(1) << std::endl;
         std::cout << "Train Labels shape: " << labels_train.shape(0) << std::endl;
 
         for (const auto& numberOfTrees : tree_counts) {
-            std::cout << "\n--- Testing with " << numberOfTrees << " trees ---" << std::endl;
+            std::cout << "\n--- Testing with " << numberOfTrees << " trees and " << "Train Samples: " << features_test.shape(0) << " ---" << std::endl;
 
             long memory_before = getMemoryUsageMB();
 

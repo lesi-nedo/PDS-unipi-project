@@ -21,7 +21,7 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: Please run this program from the 'project' directory." << std::endl;
         return 1;
     }
-    const std::string results_path = curr_path / "results" / "fastflow_impl" / "";
+    const std::string results_path = curr_path / "results" / "fastflow_impl2" / "";
 
     ff_ml::DecisionForest<double, int, double> rf;
     const int randomSeed = 42; // Fixed seed for reproducibility
