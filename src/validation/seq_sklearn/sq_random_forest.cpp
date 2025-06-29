@@ -37,9 +37,8 @@ int main(int argc, char* argv[]) {
     ml::DecisionForest<double, int, double> forest;
     const size_t numberOfTrees = 100; // Use same number as scikit-learn
     
-    // Set random seed for reproducibility
-    std::mt19937 randomEngine(42);
-    forest.learn(features_train, labels_train, numberOfTrees, randomEngine);
+    
+    forest.learn(features_train, labels_train, numberOfTrees, 42);
     
     std::cout << "Learned " << forest.size() << " decision trees." << std::endl;
     

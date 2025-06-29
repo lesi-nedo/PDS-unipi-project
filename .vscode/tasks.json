@@ -4,7 +4,7 @@
             "type":  "shell",
             "label": "CMake Configure fastflow_imp",
             "command": "cmake",
-            "args": ["-DCMAKE_BUILD_TYPE=Debug", "../"],
+            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-DPython3_EXECUTABLE=${command:python.interpreterPath}", "../"],
             "group": "build",
             "options": {
                 "cwd": "${workspaceFolder}/build"
@@ -47,7 +47,7 @@
             "type": "shell",
             "label": "CMake Configure sequential_impl",
             "command": "cmake",
-            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-DBUILD_SEQUENTIAL=ON", ".."],
+            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-DBUILD_SEQUENTIAL=ON", "-DPython3_EXECUTABLE=${command:python.interpreterPath}", ".."],
             "options": {
                 "cwd": "${workspaceFolder}/build"
             },
@@ -90,7 +90,7 @@
             "type": "shell",
             "label": "CMake Configure sq_random_forest",
             "command": "cmake",
-            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-DBUILD_VALSEQ=ON", ".."],
+            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-DBUILD_VALSEQ=ON", "-DPython3_EXECUTABLE=${command:python.interpreterPath}", ".."],
             "options": {
                 "cwd": "${workspaceFolder}/build"
             },
@@ -208,7 +208,7 @@
             "type": "shell",
             "label": "CMake Configure",
             "command": "cmake",
-            "args": ["-DCMAKE_BUILD_TYPE=Debug", ".."],
+            "args": ["-DCMAKE_BUILD_TYPE=Debug", "-DPython3_EXECUTABLE=${command:python.interpreterPath}", ".."],
             "options": {
                 "cwd": "${workspaceFolder}/build"
             },

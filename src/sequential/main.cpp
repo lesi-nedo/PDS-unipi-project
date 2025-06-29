@@ -31,17 +31,18 @@ int main(int argc, char* argv[]) {
     }
     const std::string results_path = curr_path / "results" / "sequential_impl" / "";
 
-    const std::vector<size_t> samples_perTree = {50, 100, 150, 200, 250};
+    const std::vector<size_t> samples_perTree = {1000};
+    const std::vector<size_t> samples_perTree_test = {100}; // Assuming same for test dataset
+
     const std::vector<size_t> tree_counts = {10, 50, 100, 150, 200};
 
     ml::DecisionForest<double, int, double> forest;
-    std::mt19937 randomEngine(42);
 
     try {
-        run_test<double, int, double>(tree_counts, samples_perTree, 
+        run_test<double, int, double>(tree_counts, samples_perTree, samples_perTree_test,
                  std::string_view(train_dataset_path), 
                  std::string_view(test_dataset_path), 
-                 results_path, forest, randomEngine);
+                 results_path, forest, 42);
     } catch (const std::runtime_error& e) {
         std::cerr << "Error during testing: " << e.what() << std::endl;
         return 1;

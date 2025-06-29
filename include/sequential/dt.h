@@ -87,9 +87,9 @@ namespace ml {
         Feature threshold() const;
         size_t childNodeIndex(const size_t) const;
         Label label() const;
-        template<class RandomEngine>
-            size_t learn(const andres::View<Feature>&, const andres::View<Label>&, 
-                std::vector<size_t>&, const size_t, const size_t, RandomEngine&);   
+        
+        size_t learn(const andres::View<Feature>&, const andres::View<Label>&, 
+                std::vector<size_t>&, const size_t, const size_t, const int = 0);   
         void serialize(std::ostream&) const;
 
     private:
@@ -186,12 +186,9 @@ namespace ml {
         typedef LABEL Label;
         typedef DecisionNode<Feature, Label> DecisionNodeType;
 
-        DecisionTree();
+        DecisionTree();  
         void learn(const andres::View<Feature>&, const andres::View<Label>&,
-            std::vector<size_t>&);
-        template<class RandomEngine>
-            void learn(const andres::View<Feature>&, const andres::View<Label>&,
-                std::vector<size_t>&, RandomEngine&);
+                std::vector<size_t>&, const int = 0);
         void deserialize(std::istream&);
 
         size_t size() const; // number of decision nodes
@@ -237,11 +234,9 @@ namespace ml {
 
         DecisionForest();
         void clear();    
+
         void learn(const andres::View<Feature>&, const andres::View<Label>&,
-            const size_t = 255);
-        template<class RandomEngine>
-            void learn(const andres::View<Feature>&, const andres::View<Label>&,
-                const size_t, RandomEngine&);
+                const size_t, const int = 0);
         void deserialize(std::istream&);
 
         size_t size() const;
@@ -377,10 +372,9 @@ DecisionNode<FEATURE, LABEL>::label() {
 /// \param sampleIndices A sequence of indices of samples to be considered for learning. This vector is used by the function as a scratch-pad for sorting.
 /// \param sampleIndexBegin Index of the first element of sampleIndices to be considered.
 /// \param sampleIndexEnd Index one greater than that of the last element of sampleIndices to be considered.
-/// \param randomEngine C++11 STL-compliant random number generator.
+/// \param randomSeed A random number generator used for sampling features and samples.
 ///
 template<class FEATURE, class LABEL>
-template<class RandomEngine>
 size_t
 DecisionNode<FEATURE, LABEL>::learn(
     const andres::View<Feature>& features,
@@ -388,7 +382,7 @@ DecisionNode<FEATURE, LABEL>::learn(
     std::vector<size_t>& sampleIndices, // input, will be sorted
     const size_t sampleIndexBegin,
     const size_t sampleIndexEnd,
-    RandomEngine& randomEngine
+    const int randomSeed
 ) {
     /*
     std::cout << "learning new node from sample indices";
@@ -460,7 +454,10 @@ DecisionNode<FEATURE, LABEL>::learn(
 
     std::vector<size_t> featureIndicesBuffer(numberOfFeaturesToBeAssessed); 
     std::vector<size_t> randomSampleBuffer; 
-    
+    auto randomEngine = 
+        (randomSeed == 0) ? std::mt19937(std::random_device{}()) 
+                          : std::mt19937(randomSeed);
+                          
     sampleSubsetWithoutReplacement(
         numberOfFeatures, 
         numberOfFeaturesToBeAssessed, 
@@ -705,33 +702,15 @@ DecisionTree<FEATURE, LABEL>::DecisionTree()
 /// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
 /// \param labels A vector of labels, one for each sample.
 /// \param sampleIndices A sequence of indices of samples to be considered for learning. This vector is used by the function as a scratch-pad for sorting.
+/// \param randomSeed A random number generator used for sampling features and samples.
 ///
 template<class FEATURE, class LABEL>
-inline void 
-DecisionTree<FEATURE, LABEL>::learn(
-    const andres::View<Feature>& features,
-    const andres::View<Label>& labels,
-    std::vector<size_t>& sampleIndices // input, will be sorted
-) {
-    typedef std::default_random_engine RandomEngine;
-    learn<RandomEngine>(features, labels, sampleIndices, RandomEngine());
-}
-
-/// Learns a decision tree as described by Leo Breiman (2001).
-///
-/// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
-/// \param labels A vector of labels, one for each sample.
-/// \param sampleIndices A sequence of indices of samples to be considered for learning. This vector is used by the function as a scratch-pad for sorting.
-/// \param randomEngine C++11 STL-compliant random number generator.
-///
-template<class FEATURE, class LABEL>
-template<class RandomEngine>
 void 
 DecisionTree<FEATURE, LABEL>::learn(
     const andres::View<Feature>& features,
     const andres::View<Label>& labels,
     std::vector<size_t>& sampleIndices, // input, will be sorted
-    RandomEngine& randomEngine
+    const int randomSeed
 ) {
     assert(decisionNodes_.size() == 0);
    
@@ -744,7 +723,7 @@ DecisionTree<FEATURE, LABEL>::learn(
             labels, 
             sampleIndices, 
             0, sampleIndices.size(),
-            randomEngine
+            randomSeed
         );        
         if(!decisionNodes_[0].isLeaf()) { // if root node is not pure
             queue.push(
@@ -774,7 +753,7 @@ DecisionTree<FEATURE, LABEL>::learn(
             labels, 
             sampleIndices,
             sampleIndexBegin, thresholdIndex,
-            randomEngine
+            randomSeed
         );
         #ifndef NDEBUG
         if(decisionNodes_[nodeIndexNew].isLeaf()) {
@@ -806,7 +785,7 @@ DecisionTree<FEATURE, LABEL>::learn(
             labels, 
             sampleIndices,
             thresholdIndex, sampleIndexEnd,
-            randomEngine
+            randomSeed
         );
         #ifndef NDEBUG
         if(decisionNodes_[nodeIndexNew].isLeaf()) {
@@ -939,33 +918,21 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::size() const {
 }
 
 
-template<class FEATURE, class LABEL, class PROBABILITY>
-inline void 
-DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
-    const andres::View<Feature>& features,
-    const andres::View<Label>& labels,
-    const size_t numberOfDecisionTrees
-) {
-    typedef std::default_random_engine RandomEngine;
-    RandomEngine randomEngine;
-    learn<RandomEngine>(features, labels, numberOfDecisionTrees, randomEngine);
-}
 
 /// Learns a decision forest from labeled samples as described by Breiman (2001).
 ///
 /// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
 /// \param labels A vector of labels, one for each sample.
 /// \param numberOfDecisionTrees Number of decision trees to be learned.
-/// \param randomEngine C++11 STL-compatible random number generator.
+/// \param randomSeed
 ///
 template<class FEATURE, class LABEL, class PROBABILITY>
-template<class RandomEngine>
 inline void 
 DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
     const andres::View<Feature>& features,
     const andres::View<Label>& labels,
     const size_t numberOfDecisionTrees,
-    RandomEngine& randomEngine
+    const int randomSeed
 ) {
     if(features.dimension() != 2) {
         throw std::runtime_error("features.dimension() != 2");
@@ -983,8 +950,17 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
     decisionTrees_.resize(numberOfDecisionTrees);
     for(ptrdiff_t treeIndex = 0; treeIndex < static_cast<ptrdiff_t>(decisionTrees_.size()); ++treeIndex) {
         std::vector<size_t> sampleIndices(numberOfSamples);
+            
+        int tree_specific_seed = (randomSeed == 0) ? 0 : (randomSeed + treeIndex);
+        std::mt19937 randomEngine;
+        if (tree_specific_seed == 0) {
+            std::seed_seq seq{(unsigned int)std::random_device{}(), (unsigned int)treeIndex};
+            randomEngine.seed(seq);
+        } else {
+            randomEngine.seed(tree_specific_seed);
+        }
         sampleBootstrap(numberOfSamples, sampleIndices, randomEngine);
-        decisionTrees_[treeIndex].learn(features, labels, sampleIndices, randomEngine);
+        decisionTrees_[treeIndex].learn(features, labels, sampleIndices, tree_specific_seed);
     }
 }
 

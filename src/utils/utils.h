@@ -398,27 +398,33 @@ template<typename TrainFn, typename ForestType>
 void run_test_impl(
     const std::vector<size_t>& tree_counts,
     const std::vector<size_t>& samples_per_tree,
+    const std::vector<size_t>& samples_per_tree_test,
     const std::string_view train_dt_path,
     const std::string_view test_dt_path,
     const std::string& results_path,
     ForestType& forest,
     TrainFn train_fn
 ) {
+    if(samples_per_tree.size() > samples_per_tree_test.size()) {
+        throw std::runtime_error("samples_per_tree size must be less than or equal to samples_per_tree_test size.");
+    }
     std::filesystem::create_directories(results_path);
     std::ofstream performance_log(results_path + "performance.csv");
     performance_log << "NumTrees,TrainingTime_ms,PredictionTime_ms,Accuracy,MemoryUsage_MB,SamplesPerTree,FeaturesPerTree,TrainingThroughput_samples_per_sec,PredictionThroughput_samples_per_sec,F1Score,Precision,Recall\n";
     std::cout << "\nStarting performance evaluation loop..." << std::endl;
 
-    for(const auto& samples : samples_per_tree) {
+    for(size_t ind {0}; ind < samples_per_tree.size(); ++ind) {
+        const auto samples = samples_per_tree[ind];
+        const auto samples_test = samples_per_tree_test[ind];
         auto [features_train, labels_train] = loadCSVToMarray<double>(train_dt_path, ',', samples, andres::FirstMajorOrder); 
-        auto [features_test, labels_test] = loadCSVToMarray<double>(test_dt_path, ',', samples, andres::LastMajorOrder);
+        auto [features_test, labels_test] = loadCSVToMarray<double>(test_dt_path, ',', samples_test, andres::LastMajorOrder);
         
         std::cout << "--- Loaded datasets ---" << std::endl ;
         std::cout << "Train Features shape: " << features_train.shape(0) << " x " << features_train.shape(1) << std::endl;
         std::cout << "Train Labels shape: " << labels_train.shape(0) << std::endl;
 
         for (const auto& numberOfTrees : tree_counts) {
-            std::cout << "\n--- Testing with " << numberOfTrees << " trees and " << "Train Samples: " << features_test.shape(0) << " ---" << std::endl;
+            std::cout << "\n--- Testing with " << numberOfTrees << " trees and " << "Train Samples: " << features_train.shape(0) << ". Test samples: " << features_test.shape(0)  << " ---" << std::endl;
 
             long memory_before = getMemoryUsageMB();
 
@@ -472,62 +478,6 @@ void run_test_impl(
     std::cout << "\nPerformance evaluation finished. Results saved to " << results_path + "performance.csv" << std::endl;
 }
 
-/**
- * @brief Run a test for a decision forest engine with specified parameters
- * 
- * This function runs a series of tests on a decision forest engine using the provided
- * training and testing datasets. It measures training time, prediction time, accuracy,
- * and memory usage, and logs the results to a CSV file.
- * 
- * @tparam ForestType The type of the decision forest engine (must satisfy DecisionForestConceptEngine)
- * 
- * @param tree_counts A vector of tree counts to test
- * @param samples_per_tree A vector of sample sizes for each tree
- * @param train_dt_path Path to the training dataset in CSV format
- * @param test_dt_path Path to the testing dataset in CSV format
- * @param results_path Path to save the performance results in CSV format
- * @param forest The decision forest engine instance to be tested
- * @param randomEngine A random number generator engine to be used for training
- * 
- * @throws std::runtime_error If the training or testing datasets cannot be loaded
- * @throws std::runtime_error If the results file cannot be opened for writing
- * 
- * @note The function assumes the last column of the training and testing datasets contains labels
- * @note The function will log the results in a CSV format with columns for tree count,
- *       samples per tree, training time, prediction time, accuracy, and memory usage
- * @note The function will also print the results to the console for immediate feedback
- * * @example
- * @code
- * DecisionForestEngine forest;
- * std::vector<size_t> tree_counts = {10, 20, 30};
- * std::vector<size_t> samples_per_tree = {100, 200, 300};
- * run_test(tree_counts, samples_per_tree, "train_data.csv", "test_data.csv", "results.csv", forest);
- * @endcode
- */
-template<
-    typename Feature,
-    typename Label,
-    typename Probability,
-    typename RandomEngine,
-    DecisionForestConceptEngine<Feature, Label, Probability> ForestType
->
-void run_test(
-    const std::vector<size_t>& tree_counts,
-    const std::vector<size_t>& samples_per_tree,
-    const std::string_view train_dt_path,
-    const std::string_view test_dt_path,
-    const std::string& results_path,
-    ForestType& forest,
-    RandomEngine& randomEngine
-) {
-    
-    run_test_impl(
-        tree_counts, samples_per_tree, train_dt_path, test_dt_path, results_path, forest,
-        [&](auto& forest, const auto& features, const auto& labels, size_t numberOfTrees) {
-            forest.learn(features, labels, numberOfTrees, randomEngine);
-        }
-    );
-}
 
 /**
  * @brief Run a test for a decision forest engine with specified parameters
@@ -536,6 +486,7 @@ void run_test(
  * and memory usage, and logs the results to a CSV file.
  * @param tree_counts A vector of tree counts to test
  * @param samples_per_tree A vector of sample sizes for each tree
+ * @param samples_per_tree_test A vector of sample sizes for each tree in the test dataset
  * @param train_dt_path Path to the training dataset in CSV format
  * @param test_dt_path Path to the testing dataset in CSV format
  * @param results_path Path to save the performance results in CSV format
@@ -565,6 +516,7 @@ template<
 void run_test(
     const std::vector<size_t>& tree_counts,
     const std::vector<size_t>& samples_per_tree,
+    const std::vector<size_t>& samples_per_tree_test,
     const std::string_view train_dt_path,
     const std::string_view test_dt_path,
     const std::string& results_path,
@@ -572,7 +524,7 @@ void run_test(
     const int random_seed=0
 ) {
     run_test_impl(
-        tree_counts, samples_per_tree, train_dt_path, test_dt_path, results_path, forest,
+        tree_counts, samples_per_tree, samples_per_tree_test, train_dt_path, test_dt_path, results_path, forest,
         [&](auto& forest, const auto& features, const auto& labels, size_t numberOfTrees) {
             forest.learn(features, labels, numberOfTrees, random_seed);
         }

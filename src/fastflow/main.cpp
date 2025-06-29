@@ -21,15 +21,16 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: Please run this program from the 'project' directory." << std::endl;
         return 1;
     }
-    const std::string results_path = curr_path / "results" / "fastflow_impl2" / "";
+    const std::string results_path = curr_path / "results" / "fastflow_impl2"/ "";
 
     ff_ml::DecisionForest<double, int, double> rf;
     const int randomSeed = 42; // Fixed seed for reproducibility
     const std::vector<size_t> samples_perTree = FF_SAMPLES_PER_TREE;
+    const std::vector<size_t> samples_perTree_test = FF_SAMPLES_PER_TREE_TEST;
     const std::vector<size_t> tree_counts = FF_TREE_COUNTS;
 
     try {
-        run_test<double, int, double>(tree_counts, samples_perTree, 
+        run_test<double, int, double>(tree_counts, samples_perTree, samples_perTree_test, 
                  std::string_view(train_dataset), 
                  std::string_view(test_dataset), 
                  results_path, rf, randomSeed);
