@@ -456,7 +456,7 @@ DecisionNode<FEATURE, LABEL>::learn(
     std::vector<size_t> randomSampleBuffer; 
     auto randomEngine = 
         (randomSeed == 0) ? std::mt19937(std::random_device{}()) 
-                          : std::mt19937(randomSeed);
+                          : std::mt19937(randomSeed+sampleIndexBegin);
                           
     sampleSubsetWithoutReplacement(
         numberOfFeatures, 
@@ -470,6 +470,7 @@ DecisionNode<FEATURE, LABEL>::learn(
     numbersOfLabelsForSplit[0].reserve(10); 
     numbersOfLabelsForSplit[1].reserve(10); 
     double optimalSumOfGiniCoefficients = std::numeric_limits<double>::infinity();
+    double bestBalance = std::numeric_limits<double>::infinity(); 
     size_t currentOptimalFeatureIndex = 0; // Initialize
     Feature currentOptimalThreshold = Feature(); // Initialize
     size_t currentOptimalThresholdIndex = sampleIndexBegin; // Initialize
@@ -564,7 +565,13 @@ DecisionNode<FEATURE, LABEL>::learn(
             }
 
             double sumOfginiCoefficients = giniCoefficients[0] + giniCoefficients[1];
-            if(sumOfginiCoefficients < optimalSumOfGiniCoefficients) {
+            double currentBalance = 
+                std::abs(static_cast<double>(numbersOfElements[0]) - static_cast<double>(numbersOfElements[1]))
+                / static_cast<double>(numbersOfElements[0] + numbersOfElements[1]);
+            if(sumOfginiCoefficients < optimalSumOfGiniCoefficients ||
+                (sumOfginiCoefficients == optimalSumOfGiniCoefficients && currentBalance < bestBalance)
+            ) {
+                bestBalance = currentBalance;
                 optimalSumOfGiniCoefficients = sumOfginiCoefficients;
                 currentOptimalFeatureIndex = fi;
                 currentOptimalThreshold = features(sampleIndices[thresholdIndexLoopVar], fi); 

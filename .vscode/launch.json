@@ -27,10 +27,10 @@
             "miDebuggerPath": "/usr/bin/gdb"
         },
         {
-            "name": "Debug fastflow",
+            "name": "Debug fastflow experiment 1",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/bin/fastflow_impl",
+            "program": "${workspaceFolder}/build/bin/ff_impl_exp1",
             "args": [
                 "${workspaceFolder}/data/susy/train_susy.csv",
                 "${workspaceFolder}/data/susy/test_susy.csv"
@@ -52,7 +52,7 @@
                     "ignoreFailures": true
                 }
             ],
-            "preLaunchTask": "Cmake build fastflow_imp",
+            "preLaunchTask": "Cmake build fastflow experment1",
             "miDebuggerPath": "/usr/bin/gdb"    
         },
         {

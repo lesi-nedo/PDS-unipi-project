@@ -18,13 +18,13 @@
         },
         {
             "type": "shell",
-            "label": "Cmake build fastflow_imp",
+            "label": "Cmake build fastflow experment1",
             "command": "cmake",
             "args": [
                 "--build",
                 ".",
                 "--target",
-                "fastflow_impl"
+                "ff_impl_exp1"
             ],
             "options": {
                 "cwd": "${workspaceFolder}/build"

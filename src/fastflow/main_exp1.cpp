@@ -1,6 +1,6 @@
 #include "marray.h"
 #include "utils.h"
-#include "dt_fastflow.h"
+#include "dt_ff_exp1.h"
 #include "ff_impl_config.h"
 
 int main(int argc, char* argv[]) {

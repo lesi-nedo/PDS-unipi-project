@@ -45,10 +45,14 @@ foreach(line IN LISTS CONF_LINES)
     # Use REGEX MATCH for cleaner and more robust parsing.
     # This handles potential whitespace and correctly extracts key and value.
     if(line MATCHES "^[ ]*([a-zA-Z0-9_]+)[ ]*=[ ]*(.+)$")
-        
+       
+        #   # Remove comments
         string(STRIP "${CMAKE_MATCH_2}" value)
-        string(REPLACE "\"" "" value "${CMAKE_MATCH_2}")
+        string(REPLACE "\"" "" value "${value}")
         string(TOUPPER "${CMAKE_MATCH_1}" key_upper)
+
+        string(REGEX REPLACE "[ ]*#+.*$" "" value "${value}")
+        
         message(STATUS "Setting configuration: ${key_upper} = ${value}")
         set("${key_upper}" "${value}")
         
@@ -66,24 +70,16 @@ configure_file(
 )
 
 add_executable(
-    fastflow_impl
-    "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
+    ff_impl_exp1
+    "${CMAKE_CURRENT_SOURCE_DIR}/main_exp1.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/utils.cpp" 
 )
 
 target_include_directories(
-    fastflow_impl
+    ff_impl_exp1
     PRIVATE
     "${CMAKE_SOURCE_DIR}/include/sequential"
     "${CMAKE_SOURCE_DIR}/src/utils" 
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/external/fastflow/"
-)
-
-add_custom_target(
-    run_fastflow
-    COMMAND $<TARGET_FILE:fastflow_impl>   "${TRAIN_DATA_PATH}" "${TEST_DATA_PATH}"
-    DEPENDS fastflow_impl
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Running FastFlow implementation with SUSY dataset..."
 )

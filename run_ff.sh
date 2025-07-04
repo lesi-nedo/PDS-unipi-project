@@ -7,10 +7,16 @@ fi
 
 cd build || exit 1
 
-CMAKE_ARGS=""
+CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Debug"
 
 if [[ "$1" == "sequential_impl" ]]; then
-  CMAKE_ARGS+="-DBUILD_SEQUENTIAL=ON"
+  echo "Building with sequential implementation enabled."
+  CMAKE_ARGS+=" -DBUILD_SEQUENTIAL=ON"
+fi
+
+if [[ "$1" == "run_sequential_validation" ]]; then
+  echo "Building with sequential validation enabled."
+  CMAKE_ARGS+=" -DBUILD_VALSEQ=ON"
 fi
 
 curr_dir_name=$(basename "$PWD")
@@ -27,5 +33,6 @@ cmake $CMAKE_ARGS ../
 cmake --build . --target "$1" -- -j 4
 
 cd ..
-
-./build/bin/"$1" ./data/susy/train_susy.csv ./data/susy/test_susy.csv
+if [[ "$1" != "run_sequential_validation" ]]; then
+  ./build/bin/"$1" ./data/susy/train_susy.csv ./data/susy/test_susy.csv
+fi

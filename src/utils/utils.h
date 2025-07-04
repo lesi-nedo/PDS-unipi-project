@@ -425,7 +425,7 @@ void run_test_impl(
 
         for (const auto& numberOfTrees : tree_counts) {
             std::cout << "\n--- Testing with " << numberOfTrees << " trees and " << "Train Samples: " << features_train.shape(0) << ". Test samples: " << features_test.shape(0)  << " ---" << std::endl;
-
+            forest.clear(); // Clear the forest before each test
             long memory_before = getMemoryUsageMB();
 
             // Time the training phase
@@ -505,7 +505,6 @@ void run_test_impl(
  * std::vector<size_t> tree_counts = {10, 20, 30};
  * std::vector<size_t> samples_per_tree = {100, 200, 300};
  * run_test(tree_counts, samples_per_tree, "train_data.csv", "test_data.csv", "results.csv", forest, 42);
- * @endcode
  */
 template<
     typename Feature,
@@ -527,6 +526,60 @@ void run_test(
         tree_counts, samples_per_tree, samples_per_tree_test, train_dt_path, test_dt_path, results_path, forest,
         [&](auto& forest, const auto& features, const auto& labels, size_t numberOfTrees) {
             forest.learn(features, labels, numberOfTrees, random_seed);
+        }
+    );
+}
+
+
+/**
+ * @brief Run a test for a decision forest engine using FastFlow network
+ * This function runs a series of tests on a decision forest engine using the provided
+ * training and testing datasets. It measures training time, prediction time, accuracy,
+ * and memory usage, and logs the results to a CSV file. It uses FastFlow network
+ * for parallel processing of the decision forest learning.
+ * @param tree_counts A vector of tree counts to test
+ * @param samples_per_tree A vector of sample sizes for each tree
+ * @param samples_per_tree_test A vector of sample sizes for each tree in the test dataset
+ * @param train_dt_path Path to the training dataset in CSV format
+ * @param test_dt_path Path to the testing dataset in CSV format
+ * @param results_path Path to save the performance results in CSV format
+ * @param forest The decision forest engine instance to be tested
+ * @param random_seed A random seed to be used for training (default: 0)
+ * @throws std::runtime_error If the training or testing datasets cannot be loaded
+ * @throws std::runtime_error If the results file cannot be opened for writing
+ * @note The function assumes the last column of the training and testing datasets contains labels
+ * @note The function will log the results in a CSV format with columns for tree count,
+ *      samples per tree, training time, prediction time, accuracy, and memory usage
+ * @note The function will also print the results to the console for immediate feedback
+ * @example
+ * @code
+ * DecisionForestEngine forest;
+ * std::vector<size_t> tree_counts = {10, 20, 30};
+ * std::vector<size_t> samples_per_tree = {100, 200, 300};
+ * run_test_ff_network(tree_counts, samples_per_tree, "train_data.csv", "test_data.csv", "results.csv", forest, 42);
+ * @endcode
+ */
+
+template<
+    typename Feature,
+    typename Label,
+    typename Probability,
+    DecisionForestConceptSeed<Feature, Label, Probability> ForestType
+>
+void run_test_ff_network(
+    const std::vector<size_t>& tree_counts,
+    const std::vector<size_t>& samples_per_tree,
+    const std::vector<size_t>& samples_per_tree_test,
+    const std::string_view train_dt_path,
+    const std::string_view test_dt_path,
+    const std::string& results_path,
+    ForestType& forest,
+    const int random_seed=0
+) {
+    run_test_impl(
+        tree_counts, samples_per_tree, samples_per_tree_test, train_dt_path, test_dt_path, results_path, forest,
+        [&](auto& forest, const auto& features, const auto& labels, size_t numberOfTrees) {
+            forest.learnWithFFNetwork(features, labels, numberOfTrees, random_seed);
         }
     );
 }

@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
     }
     const std::string results_path = curr_path / "results" / "sequential_impl" / "";
 
-    const std::vector<size_t> samples_perTree = {1000};
+    const std::vector<size_t> samples_perTree = {400};
     const std::vector<size_t> samples_perTree_test = {100}; // Assuming same for test dataset
 
     const std::vector<size_t> tree_counts = {10, 50, 100, 150, 200};
