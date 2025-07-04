@@ -1,32 +1,9 @@
-
-set(PATHS_FILE "${CMAKE_SOURCE_DIR}/src/data/paths.txt")
-
-set(FF_RF_CONF_FILE "${CMAKE_SOURCE_DIR}/src/fastflow/default.conf" CACHE STRING "The path to the configuration file for FastFlow implementation")
-
-add_subdirectory(
-    "${CMAKE_SOURCE_DIR}/src/data"
-    "${CMAKE_CURRENT_BINARY_DIR}/data"
+set(
+    FF_RF_CONF_FILE
+    "${CMAKE_SOURCE_DIR}/src/fastflow/ff.conf"
+    CACHE STRING
+    "Path to the FastFlow DecisionForest configuration file"
 )
-
-if(NOT EXISTS "${PATHS_FILE}")
-    message(FATAL_ERROR "Paths file not found: ${PATHS_FILE}. Please ensure the preprocessing script has created it.")
-endif()
-
-file(STRINGS "${PATHS_FILE}" paths_content)
-string(REPLACE "\n" ";" paths_list "${paths_content}")
-list(GET paths_list 0 TRAIN_DATA_PATH)
-list(GET paths_list 1 TEST_DATA_PATH)
-
-if(NOT TRAIN_DATA_PATH OR NOT TEST_DATA_PATH)
-    message(FATAL_ERROR "Train or test data paths not found in environment variables")
-endif()
-
-message(STATUS "Train data path: ${TRAIN_DATA_PATH}")
-message(STATUS "Test data path: ${TEST_DATA_PATH}")
-
-message(STATUS "Creating config.h file for FastFlow implementation...")
-
-message(STATUS "Configuarion file for FastFlow implementation: ${FF_RF_CONF_FILE}")
 
 if(NOT EXISTS "${FF_RF_CONF_FILE}")
     message(FATAL_ERROR "Configuration file not found: ${FF_RF_CONF_FILE}. Please provide a valid configuration file.")
@@ -61,12 +38,21 @@ foreach(line IN LISTS CONF_LINES)
     endif()
 endforeach()
 
-
+set(RESULTS_PATH_EXP2
+    "${CMAKE_SOURCE_DIR}/results/fastflow_impl2/"
+    CACHE PATH
+    "Path to store results for FastFlow implementation 2"
+)
+set(RESULTS_PATH_EXP1
+    "${CMAKE_SOURCE_DIR}/results/fastflow_impl1/"
+    CACHE PATH
+    "Path to store results for FastFlow implementation 1"
+)
 
 
 configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/ff_impl_config.h.in"
-    "${CMAKE_CURRENT_SOURCE_DIR}/ff_impl_config.h"
+    "${CMAKE_SOURCE_DIR}/src/fastflow/ff_impl_config.h.in"
+    "${CMAKE_SOURCE_DIR}/src/fastflow/ff_impl_config.h"
 )
 
 add_executable(
@@ -75,11 +61,54 @@ add_executable(
     "${CMAKE_SOURCE_DIR}/src/utils/utils.cpp" 
 )
 
+add_executable(
+    ff_impl_exp2
+    "${CMAKE_CURRENT_SOURCE_DIR}/main_exp2.cpp"
+    "${CMAKE_SOURCE_DIR}/src/utils/utils.cpp" 
+)
+
+
 target_include_directories(
     ff_impl_exp1
     PRIVATE
     "${CMAKE_SOURCE_DIR}/include/sequential"
     "${CMAKE_SOURCE_DIR}/src/utils" 
-    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/src/"
     "${CMAKE_SOURCE_DIR}/external/fastflow/"
+)
+
+target_include_directories(
+    ff_impl_exp2
+    PRIVATE
+    "${CMAKE_SOURCE_DIR}/include/sequential"
+    "${CMAKE_SOURCE_DIR}/src/utils" 
+    "${CMAKE_SOURCE_DIR}/src/"
+    "${CMAKE_SOURCE_DIR}/external/fastflow/"
+)
+
+add_custom_target(
+    run_ff_impl_exp1
+    COMMAND $<TARGET_FILE:ff_impl_exp1> ${TRAIN_DATA_PATH} ${TEST_DATA_PATH} >> /dev/null 2>&1
+    DEPENDS ff_impl_exp1
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Running FastFlow implementation 1 on Susy dataset"
+)
+
+add_custom_target(
+    run_ff_impl_exp2
+    COMMAND $<TARGET_FILE:ff_impl_exp2> ${TRAIN_DATA_PATH} ${TEST_DATA_PATH} >> /dev/null 2>&1
+    DEPENDS ff_impl_exp2
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Running FastFlow implementation 2 on Susy dataset"
+)
+
+add_custom_target(
+    run_ff_impl_comparison
+    COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/src/utils/analyze_performance.py"
+            "${RESULTS_PATH_EXP2}/performance.csv"
+            "${RESULTS_PATH_EXP1}/performance.csv"
+    DEPENDS run_ff_impl_exp1 run_ff_impl_exp2
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/"
+    COMMENT "Comparing FastFlow implementations 1 and 2"
 )

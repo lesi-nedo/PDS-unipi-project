@@ -1,3 +1,3 @@
 NumTrees,TrainingTime_ms,PredictionTime_ms,Accuracy,MemoryUsage_MB,SamplesPerTree,FeaturesPerTree,TrainingThroughput_samples_per_sec,PredictionThroughput_samples_per_sec,F1Score,Precision,Recall
-10,6687.23,234.181,0.689,0,200,17,29.9077,4270.21,0.685922,0.687594,0.685429
-50,35288.2,1158.66,0.706,0,200,17,5.66762,863.064,0.704468,0.70453,0.704412
+10,201.872,220.134,0.689,0,200,17,990.729,4542.69,0.685922,0.687594,0.685429
+50,619.175,540.345,0.706,1,200,17,323.01,1850.67,0.704468,0.70453,0.704412

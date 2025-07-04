@@ -559,27 +559,45 @@ void run_test(
  * run_test_ff_network(tree_counts, samples_per_tree, "train_data.csv", "test_data.csv", "results.csv", forest, 42);
  * @endcode
  */
-
+template<typename Forest, typename Feature, typename Label, typename Probability>
+concept DecisionForestConceptNetwork = requires(
+    Forest                 forest,
+    const andres::View<Feature>&   features,
+    const andres::View<Label>&     labels,
+    size_t                 numberOfTrees,
+    const int              randomSeed,
+    andres::Marray<Probability>&   probabilities
+) {
+    { forest.learnWithFFNetwork(features, labels, numberOfTrees, randomSeed) };
+    { forest.predict(features, probabilities) };
+    { forest.size() } -> std::convertible_to<size_t>;
+};
 template<
     typename Feature,
     typename Label,
     typename Probability,
-    DecisionForestConceptSeed<Feature, Label, Probability> ForestType
->
+    typename ForestType
+> requires DecisionForestConceptNetwork<ForestType, Feature, Label, Probability>
 void run_test_ff_network(
     const std::vector<size_t>& tree_counts,
     const std::vector<size_t>& samples_per_tree,
     const std::vector<size_t>& samples_per_tree_test,
-    const std::string_view train_dt_path,
-    const std::string_view test_dt_path,
-    const std::string& results_path,
-    ForestType& forest,
-    const int random_seed=0
+    const std::string_view   train_dt_path,
+    const std::string_view   test_dt_path,
+    const std::string&       results_path,
+    ForestType&              forest,
+    const int                random_seed = 0
 ) {
     run_test_impl(
-        tree_counts, samples_per_tree, samples_per_tree_test, train_dt_path, test_dt_path, results_path, forest,
-        [&](auto& forest, const auto& features, const auto& labels, size_t numberOfTrees) {
-            forest.learnWithFFNetwork(features, labels, numberOfTrees, random_seed);
+        tree_counts,
+        samples_per_tree,
+        samples_per_tree_test,
+        train_dt_path,
+        test_dt_path,
+        results_path,
+        forest,
+        [&](auto& f, const auto& feat, const auto& lab, size_t nt){
+            f.learnWithFFNetwork(feat, lab, nt, random_seed);
         }
     );
 }

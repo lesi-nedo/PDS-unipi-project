@@ -1,0 +1,9 @@
+#pragma once
+#ifndef RF_FASTFLOW_CONFIG_HXX
+#define RF_FASTFLOW_CONFIG_HXX
+
+#define DT_TREE_COUNTS {10, 50}
+#define DT_SAMPLES_PER_TREE_TEST {1000}
+#define DT_SAMPLES_PER_TREE {200}
+
+#endif

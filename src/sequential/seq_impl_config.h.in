@@ -1,0 +1,7 @@
+#pragma once
+#ifndef SEQ_IMPL_CONFIG_HXX
+#define SEQ_IMPL_CONFIG_HXX
+
+#define SEQ_RESULTS_PATH "@SEQ_RESULTS_PATH@"
+
+#endif

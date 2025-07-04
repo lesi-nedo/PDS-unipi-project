@@ -8,9 +8,8 @@
 #include "dt.h"
 #include "marray.h"
 #include "utils.h"
-
-
-
+#include "seq_impl_config.h"
+#include "general_config.h"
 
 int main(int argc, char* argv[]) {
     using namespace andres;
@@ -29,12 +28,19 @@ int main(int argc, char* argv[]) {
         std::cerr << "Error: Please run this program from the 'project' directory." << std::endl;
         return 1;
     }
-    const std::string results_path = curr_path / "results" / "sequential_impl" / "";
+    std::string results_path = SEQ_RESULTS_PATH;
+    if (results_path.empty()) {
+        std::cerr << "Error: SEQ_RESULTS_PATH is not set. Please define it in the configuration file." << std::endl;
+        return 1;
+    }
+    if (results_path[results_path.size() - 1] != '/')
+        results_path += '/';
 
-    const std::vector<size_t> samples_perTree = {400};
-    const std::vector<size_t> samples_perTree_test = {100}; // Assuming same for test dataset
+    std::cout << "Results will be saved to: " << results_path << std::endl;
+    const std::vector<size_t> samples_perTree = DT_SAMPLES_PER_TREE;
+    const std::vector<size_t> samples_perTree_test = DT_SAMPLES_PER_TREE_TEST; // Assuming same for test dataset
 
-    const std::vector<size_t> tree_counts = {10, 50, 100, 150, 200};
+    const std::vector<size_t> tree_counts = DT_TREE_COUNTS;
 
     ml::DecisionForest<double, int, double> forest;
 
