@@ -1455,6 +1455,8 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
     if(features.shape(0) != labels.size()) {
         throw std::runtime_error("the number of samples does not match the size of the label vector.");
     }
+    assert(numberOfDecisionTrees > 0);
+    
     auto numberOfFeaturesToBeAssessed = static_cast<size_t>(
         std::ceil(std::sqrt(static_cast<double>(features.shape(1))))
     );
@@ -1472,15 +1474,16 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
     size_t efWorkers = std::min(
         static_cast<size_t>(EN_NUM_WORKERS), 
         static_cast<size_t>(ff_numCores())
-    );  
+    );
+    size_t wnSecWorekers = std::min(
+        numberOfDecisionTrees,
+        static_cast<size_t>(WN_SECOND_NUM_WORKERS)
+    );
 
-    if(efWorkers* (WN_FIRST_NUM_WORKERS + WN_SECOND_NUM_WORKERS) > ff_numCores()) {
-        efWorkers = ff_numCores() / (WN_FIRST_NUM_WORKERS + WN_SECOND_NUM_WORKERS);
-    }
     efWorkers = std::max(efWorkers, static_cast<size_t>(1)); // Ensure at least one farm is created.
     std::cout << "Using " << efWorkers << " farms for training." << std::endl;
     std::cout << "Using " << WN_FIRST_NUM_WORKERS << " workers for left set and "
-              << WN_SECOND_NUM_WORKERS << " workers for right set in each farm." << std::endl;
+              << wnSecWorekers << " workers for right set in each farm." << std::endl;
 
     auto farm_builder = [&](){
         std::vector<std::unique_ptr<ff::ff_farm>> farms;
@@ -1495,7 +1498,7 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
                 );
 
             workersRA2A_sets.emplace_back();
-            for(size_t i = 0; i < WN_SECOND_NUM_WORKERS; ++i) 
+            for(size_t i = 0; i < wnSecWorekers; ++i) 
                 workersRA2A_sets.back().push_back(
                     new WorkerRA2A_t(
                         features, labels

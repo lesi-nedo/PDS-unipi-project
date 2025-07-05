@@ -9,7 +9,7 @@ cd build || exit 1
 
 # switch to an array
 declare -a CMAKE_ARGS
-CMAKE_ARGS=(-DCMAKE_BUILD_TYPE=Debug)
+CMAKE_ARGS=(-DCMAKE_BUILD_TYPE=Release)
 
 if [[ "$1" == "sequential_impl" ]]; then
   echo "Building with sequential implementation enabled."
@@ -37,3 +37,4 @@ cd ..
 if [[ ! "$1" =~ ^run ]]; then
   ./build/bin/"$1" ./data/susy/train_susy.csv ./data/susy/test_susy.csv
 fi
+

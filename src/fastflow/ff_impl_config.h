@@ -11,18 +11,18 @@
 #define MAP_SPINWAIT false
 #define MAP_SPINBARRIER false
 #define MAP_NUM_WORKERS 4
-#define COMPLEXITY_THRESHOLD_FARM 30000
+#define COMPLEXITY_THRESHOLD_FARM 50000
 #define USE_PARALLEL_MAP false
 
 // Experiment 2 configuration 
-#define EN_NUM_WORKERS 4
+#define EN_NUM_WORKERS 6
 #define WN_FIRST_NUM_WORKERS 2
-#define WN_SECOND_NUM_WORKERS 1
+#define WN_SECOND_NUM_WORKERS 24
 
 
 // Prediction configuration
-#define PEN_NUM_WORKERS 11 
-#define MAX_PWN_NUM_WORKERS 1
+#define PEN_NUM_WORKERS 16 
+#define MAX_PWN_NUM_WORKERS 2
 #define CHUNK_SIZE_TO_PREDICT 100
 
 // General configuration
