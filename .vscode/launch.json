@@ -56,6 +56,35 @@
             "miDebuggerPath": "/usr/bin/gdb"    
         },
         {
+            "name": "Debug fastflow experiment 2",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/bin/ff_impl_exp2",
+            "args": [
+                "${workspaceFolder}/data/susy/train_susy.csv",
+                "${workspaceFolder}/data/susy/test_susy.csv"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "Set Disassembly Flavor to Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ],
+            "preLaunchTask": "Cmake build fastflow experment2",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
             "name": "Debug sequential",
             "type": "cppdbg",
             "request": "launch",

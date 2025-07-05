@@ -559,9 +559,9 @@ private:
             int workersPerTree = 1;
 
             // High-complexity trees and fewer trees than cores suggests dedicating more cores per tree.
-            if (numSamples > complexityThreshold && numTrees < static_cast<size_t>(totalCores)) {
-                forestWorkers = std::min(static_cast<int>(numTrees), totalCores);
+            if (numSamples > complexityThreshold) {
                 workersPerTree = 2;
+                forestWorkers = std::max(1, totalCores / workersPerTree);
             } else {
                 // Otherwise, prioritize forest-level parallelism as it has lower overhead.
                 forestWorkers = std::min(static_cast<int>(numTrees), totalCores);
@@ -1617,25 +1617,54 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
     }
 
     const size_t numberOfSamples = features.shape(0);
-    const size_t numberOfFeatures = features.shape(1);
+    const size_t numberOfLabels  = labelProbabilities.shape(1);
+
+    // pick number of workers (for example min(nTrees, nCores))
+    const int nWorkers = std::min(
+        static_cast<ssize_t>(decisionTrees_.size()),
+        ff_numCores()
+    );
+
+    using ProbArray = andres::Marray<Probability>;
+    // create a “zero” identity array
+    const size_t shape[] = {numberOfSamples, numberOfLabels};
+    ProbArray identity(shape, shape+2);
+    std::fill(identity.begin(), identity.end(), Probability());
     std::fill(labelProbabilities.begin(), labelProbabilities.end(), Probability());
-    
-    for(ptrdiff_t treeIndex = 0; treeIndex < static_cast<ptrdiff_t>(decisionTrees_.size()); ++treeIndex) {
+
+    // set up the ParallelForReduce
+    ff::ParallelForReduce<ProbArray> pfr(nWorkers, FOR_SPINWAIT, FOR_SPINBARRIER);
+
+    // body: for each tree, predict & increment local counts
+    auto body = [&](long t, ProbArray & local) {
         std::vector<Label> labels(numberOfSamples);
-        const DecisionTreeType& decisionTree = decisionTrees_[treeIndex];
-        decisionTree.predict(features, labels);
-        for(size_t sampleIndex = 0; sampleIndex < numberOfSamples; ++sampleIndex) {
-            const Label label = labels[sampleIndex];
-            if(label >= labelProbabilities.shape(1)) {
-                throw std::runtime_error("labelProbabilities.shape(1) does not match the number of labels.");
-            }
-           
-            ++labelProbabilities(sampleIndex, label);
+        decisionTrees_[t].predict(features, labels);
+        for(size_t i = 0; i < numberOfSamples; ++i) {
+            local(i, labels[i]) += Probability(1);
         }
-    }
-    
-    for(ptrdiff_t j = 0; j < static_cast<ptrdiff_t>(labelProbabilities.size()); ++j) {
-        labelProbabilities(j) /= decisionTrees_.size();
+    };
+
+    // reduction: element‐wise add
+    auto reduce = [&](ProbArray & acc, const ProbArray & val) {
+        auto a = acc.begin(), b = val.begin();
+        for(; a != acc.end(); ++a, ++b) {
+            *a += *b;
+        }
+    };
+
+    // run the parallel_reduce over [0, nTrees):
+    pfr.parallel_reduce(
+      labelProbabilities,  // result
+      identity,            // init value for each worker
+      0, 
+      static_cast<ptrdiff_t>(decisionTrees_.size()),
+      body,
+      reduce
+    );
+
+    // finally normalize to get probabilities
+    for(auto & v : labelProbabilities) {
+        v /= decisionTrees_.size();
     }
 }
 

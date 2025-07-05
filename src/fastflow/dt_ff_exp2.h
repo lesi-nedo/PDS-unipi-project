@@ -574,10 +574,6 @@ public:
     typedef FEN_in_t FCN_out_t;
     typedef DecisionTreeType::DecisionNodeType::RA2AN_out_t FCN_in_t;
 
-    using PWN_out_t = std::tuple<size_t, size_t, std::vector<size_t>>;
-    using FPN_in_t = std::pair<decltype(NEW_TREE), std::variant<size_t, PWN_out_t>>;
-
-
     DecisionForest();
     void clear();    
     void learnWithFFNetwork(
@@ -706,7 +702,6 @@ private:
                     decisionTrees_[treeIndex][0].isLeaf() = newNode->isLeaf();
                     decisionTrees_[treeIndex][0].label() = newNode->label();
                     
-                    
                 } else {
                     // Process the task for an existing tree.
                     decisionTrees_[treeIndex][nodeIndexChild] = std::move(*newNode);
@@ -823,7 +818,9 @@ private:
                 
                 if(auto it = countsFeatures_.find(key); it != countsFeatures_.end()) {
                     ++it->second.first;
-                    if(it->second.second->gini > splitObj->gini) {
+                    if(it->second.second->gini > splitObj->gini ||
+                       (it->second.second->gini == splitObj->gini && it->second.second->balance > splitObj->balance)
+                    ) {
 
                         it->second.second = std::move(splitObj);
                     }
@@ -932,14 +929,152 @@ private:
         long currentTreeIndex_;
     };
 
-    // struct PredGenerator: ff::ff_monode_t<FPN_in_t, FPN_in_t> {
-    //     FPN_in_t* svc(FPN_in_t*){
-            
-    //     }
 
-    // private:
-    //     size_t currentTreeIndex_ = 0;
-    // };
+    using PWN_out_t = std::tuple<size_t, size_t, std::vector<Label>>;
+    using PEN_out_t = std::tuple<size_t, size_t, size_t>;
+    typedef PEN_out_t PWN_in_t;
+
+    struct PredWorker: ff::ff_node_t<PWN_in_t, PWN_out_t> {
+
+        PredWorker(
+            const andres::View<Feature>& features,
+            const std::vector<DecisionTreeType>& decisionTrees_
+        ):
+            features_(features),
+            decisionTrees_(decisionTrees_)
+        {}
+
+        PWN_out_t* svc(PWN_in_t* task) {
+            auto& [samplesBegin, samplesEnd, indexTree] = *task;
+#if defined(DEBUG)
+            assert(samplesBegin < samplesEnd);
+            assert(indexTree < decisionTrees_.size());
+            assert(samplesEnd <= features_.shape(0));
+            assert(samplesBegin < features_.shape(0));
+#endif
+            const auto numSamples = samplesEnd - samplesBegin;
+            std::vector<Label> labels(numSamples);
+            auto& tree = decisionTrees_[indexTree];
+            for(size_t ind=samplesBegin; ind < samplesEnd; ++ind) {
+                size_t nodeIndex = 0;
+
+                while(true) {
+                    const auto& node = tree.decisionNode(nodeIndex);
+                    if(node.isLeaf()) {
+                        break; // If we reached a leaf node, break the loop.
+                    }
+                    if(features_(ind, node.featureIndex()) < node.threshold()) {
+                        nodeIndex = node.childNodeIndex(LEFT_NODE);
+                    } else {
+                        nodeIndex = node.childNodeIndex(RIGHT_NODE);
+                    }
+#if defined(DEBUG)
+                    assert(nodeIndex != 0);
+                    assert(nodeIndex < tree.size());
+                    assert(node.featureIndex() < features_.shape(1));
+                    assert(ind < features_.shape(0));
+#endif
+                }
+                labels[ind - samplesBegin] = tree.decisionNode(nodeIndex).label();
+            }
+            this->ff_send_out(
+                new PWN_out_t(samplesBegin, samplesEnd, std::move(labels))
+            );
+            delete task; // Clean up the task after sending it out.
+            return this->GO_ON; // Continue processing.
+        }
+        
+
+        const andres::View<Feature>& features_;
+        const std::vector<DecisionTreeType>& decisionTrees_;
+    };
+
+    struct PredCollector: ff::ff_minode_t<PWN_out_t, size_t> {
+        PredCollector(
+            std::vector<Label>& labels,
+            andres::Marray<Probability>& probabilities
+        )
+            : labels_(labels),
+              probabilities_(probabilities)
+        {}
+        size_t* svc(PWN_out_t* task) {
+            auto& [samplesBegin, samplesEnd, labels] = *task;
+            const auto numSamples = samplesEnd - samplesBegin;
+            for(size_t ind = samplesBegin; ind < samplesEnd; ++ind) {
+                labels_[ind] = labels[ind - samplesBegin];
+#if defined(DEBUG)
+                assert(ind < labels_.size());
+#endif
+                ++probabilities_(ind, labels_[ind]);
+            }
+            
+            delete task; // Clean up the task after sending it out.
+            return this->GO_ON; // Continue processing.
+        }
+        std::vector<Label>& labels_;
+        andres::Marray<Probability>& probabilities_;
+    };
+
+    struct PredEmitter: ff::ff_monode_t<size_t,PEN_out_t>{
+        PredEmitter(
+            const size_t numOfPointsToPredict
+        ):
+            numOfPointsToPredict_(numOfPointsToPredict),
+            totalChunks((numOfPointsToPredict_ + chunk_size - 1) / chunk_size)
+        {}
+
+        PEN_out_t* svc(size_t* task) {
+            
+            for(size_t chunk = 0; chunk < totalChunks; ++chunk) {
+                this->ff_send_out(
+                    new PEN_out_t(
+                        chunk*chunk_size,
+                        std::min((chunk+1)*chunk_size, numOfPointsToPredict_),
+                        *task
+                    )
+                );
+            }
+            delete task; // Clean up the task after sending it out.
+            return this->GO_ON; // Continue processing.
+        }
+
+        void eosnotify(ssize_t id) {
+            // Notify the end of the stream.
+            eosreceived_ = true;
+
+        }
+        const int chunk_size = CHUNK_SIZE_TO_PREDICT;
+        const size_t numOfPointsToPredict_;
+        const size_t totalChunks;
+        
+        bool eosreceived_ = false; // Flag to indicate if EOS has been received.
+
+    };
+
+    struct PredGenerator: ff::ff_monode_t<size_t, size_t> {
+
+        PredGenerator(
+            const std::vector<DecisionTreeType>& decisionTrees
+        ):
+            decisionTrees_(decisionTrees)
+        {}
+
+        size_t* svc(size_t*){
+
+            if(currentTreeIndex_ < decisionTrees_.size()) {
+                this->ff_send_out(new size_t(currentTreeIndex_));
+                ++currentTreeIndex_;
+                return this->GO_ON; // Continue processing.
+            } else {
+                return this->EOS; // No more trees to process.
+            }
+            
+        }
+
+        private:
+            const std::vector<DecisionTreeType>& decisionTrees_;
+            size_t currentTreeIndex_ = 0;
+    };
 
     
 };
@@ -1093,11 +1228,11 @@ DecisionNode<FEATURE, LABEL>::sampleSubsetWithoutReplacement(
         const size_t index = distribution(randomEngine);
         indices[j] = candidateIndices[index];
         candidateIndices[index] = candidateIndices[size - j - 1];
-        #if defined(DEBUG)
+#if defined(DEBUG)
         for(size_t k = 0; k < j; ++k) {
             assert(indices[k] != indices[j]);
         }
-        #endif
+#endif
     }
 }
 
@@ -1334,10 +1469,22 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
     std::vector<std::vector<WorkerLA2A_t*>> workersLA2A_sets;
     std::vector<std::vector<WorkerRA2A_t*>> workersRA2A_sets;
     TrainGenerator generator (numberOfDecisionTrees);
+    size_t efWorkers = std::min(
+        static_cast<size_t>(EN_NUM_WORKERS), 
+        static_cast<size_t>(ff_numCores())
+    );  
 
-     auto farm_builder = [&](){
+    if(efWorkers* (WN_FIRST_NUM_WORKERS + WN_SECOND_NUM_WORKERS) > ff_numCores()) {
+        efWorkers = ff_numCores() / (WN_FIRST_NUM_WORKERS + WN_SECOND_NUM_WORKERS);
+    }
+    efWorkers = std::max(efWorkers, static_cast<size_t>(1)); // Ensure at least one farm is created.
+    std::cout << "Using " << efWorkers << " farms for training." << std::endl;
+    std::cout << "Using " << WN_FIRST_NUM_WORKERS << " workers for left set and "
+              << WN_SECOND_NUM_WORKERS << " workers for right set in each farm." << std::endl;
+
+    auto farm_builder = [&](){
         std::vector<std::unique_ptr<ff::ff_farm>> farms;
-        for(size_t curr_farm{0}; curr_farm < EN_NUM_WORKERS; ++curr_farm) {
+        for(size_t curr_farm{0}; curr_farm < efWorkers; ++curr_farm) {
             
             workersLA2A_sets.emplace_back();
             for(size_t i = 0; i < WN_FIRST_NUM_WORKERS; ++i) 
@@ -1428,23 +1575,63 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
         throw std::runtime_error("labelProbabilities.shape(0) does not match the number of samples.");
     }
 
-    const size_t numberOfSamples = features.shape(0);
-    const size_t numberOfFeatures = features.shape(1);
-    std::fill(labelProbabilities.begin(), labelProbabilities.end(), Probability());
+    std::vector<Label> labels(features.shape(0));
+
+    PredGenerator generator(decisionTrees_);
+    std::vector<std::unique_ptr<PredEmitter>> emitters;
+    std::vector<std::unique_ptr<PredCollector>> collectors;
     
-    for(ptrdiff_t treeIndex = 0; treeIndex < static_cast<ptrdiff_t>(decisionTrees_.size()); ++treeIndex) {
-        std::vector<Label> labels(numberOfSamples);
-        const DecisionTreeType& decisionTree = decisionTrees_[treeIndex];
-        decisionTree.predict(features, labels);
-        for(size_t sampleIndex = 0; sampleIndex < numberOfSamples; ++sampleIndex) {
-            const Label label = labels[sampleIndex];
-            if(label >= labelProbabilities.shape(1)) {
-                throw std::runtime_error("labelProbabilities.shape(1) does not match the number of labels.");
-            }
-           
-            ++labelProbabilities(sampleIndex, label);
-        }
+    std::fill(labelProbabilities.begin(), labelProbabilities.end(), Probability());
+
+
+    auto numWorkers = std::min(static_cast<size_t>(MAX_PWN_NUM_WORKERS), features.shape(0) / CHUNK_SIZE_TO_PREDICT);
+    if(numWorkers == 0) {
+        numWorkers = 1; // Ensure at least one worker is created.
     }
+    auto cpu_cores = static_cast<size_t>(ff_numCores());
+    size_t pfInPar = std::min(std::min(static_cast<size_t>(PEN_NUM_WORKERS), decisionTrees_.size()), cpu_cores);
+    std::cout << "Using " << pfInPar << " parallel farms for prediction." << std::endl;
+    std::cout << "Using " << numWorkers << " workers per farm." << std::endl;
+    std::vector<std::vector<std::unique_ptr<PredWorker>>> workers(pfInPar);
+
+    auto farm_builder = [&](){
+        std::vector<std::unique_ptr<ff::ff_farm>> farms;
+        for(size_t curr_farm{0}; curr_farm < pfInPar; ++curr_farm) {
+            emitters.emplace_back(std::make_unique<PredEmitter>(features.shape(0)));
+            collectors.emplace_back(std::make_unique<PredCollector>(
+                labels,
+                labelProbabilities
+            ));
+            
+            farms.emplace_back(std::make_unique<ff::ff_farm>(false));
+            farms[curr_farm]->add_emitter(emitters.back().get());
+            for (size_t i = 0; i < numWorkers; ++i) {
+                workers[curr_farm].emplace_back(
+                    std::make_unique<PredWorker>(features, decisionTrees_)
+                );
+                farms[curr_farm]->add_workers({workers[curr_farm].back().get()});
+            }
+            farms[curr_farm]->add_collector(collectors.back().get());
+            farms[curr_farm]->blocking_mode();
+        }
+        return std::move(farms);
+    };
+
+    auto inner_farms = farm_builder();
+    std::vector<std::unique_ptr<ff::ff_node>> farm_nodes;
+    for(auto& farm : inner_farms) {
+        farm_nodes.push_back(std::move(farm));
+    }
+    ff::ff_Farm<PEN_out_t> generalFarm(
+        std::move(farm_nodes),
+        generator
+    );
+    generalFarm.remove_collector();
+    generalFarm.blocking_mode();
+    if(generalFarm.run_and_wait_end() < 0) {
+        throw std::runtime_error("Error during decision forest prediction with FastFlow network.");
+    }
+
     
     for(ptrdiff_t j = 0; j < static_cast<ptrdiff_t>(labelProbabilities.size()); ++j) {
         labelProbabilities(j) /= decisionTrees_.size();
