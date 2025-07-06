@@ -62,6 +62,7 @@
 #include <immintrin.h>
 #include <thread>
 #include <variant>
+#include <execution>
 
 
 #include "ff/ff.hpp"
@@ -349,7 +350,8 @@ private:
             labels_(labels),
             sampleIndices_(sampleIndices),
             randomSeed_(randomSeed),
-            decisionNodes_(decisionNodes)
+            decisionNodes_(decisionNodes),
+            sortItems_(features.shape(0))
         {
             assert(decisionNodes_.empty());
 
@@ -386,15 +388,12 @@ private:
                 if(!decisionNodes_[nodeIndexChild].isLeaf()) {
                     queue_.emplace(nodeIndexChild, sampleIndexBegin, sampleIndexEnd, thresholdIndex);
                 }
-                sortItems_.clear();
                 for(size_t ind = 0; ind < subSampleIndices.size(); ++ind) {
-                    sortItems_.emplace_back(
-                        SortItem<Feature>{
+                    sortItems_[ind] = std::move(SortItem<Feature>(
                             features_(subSampleIndices[ind], newNode.featureIndex()), subSampleIndices[ind]
-                        }
-                    );
+                    ));
                 }
-                std::sort(sortItems_.begin(), sortItems_.end());
+                std::sort(sortItems_.begin(), sortItems_.begin() + subSampleIndices.size());
                 for(size_t ind = 0; ind < sortItems_.size(); ++ind) {
                     sampleIndices_[ind + sampleIndexBegin] = sortItems_[ind].sampleIndex;
                 }
@@ -889,21 +888,28 @@ inline std::tuple<double, size_t, FEATURE, size_t> DecisionNode<FEATURE, LABEL>:
         // To improve cache performance, create a temporary vector of structs
         // to hold feature values and indices, sort it, then update sampleIndices.
         // This makes the sort operation much faster by avoiding strided memory access.
-        sortBuffer.clear();
+       
         const auto numSamplesInNode = sampleIndicesView.size();
-        sortBuffer.reserve(numSamplesInNode);
+
 
         #if CACHE_OPTIMIZATION
             
-            for (size_t k = 0; k < numSamplesInNode; ++k) {
-                sortBuffer.emplace_back(features(sampleIndicesView[k], fi), sampleIndicesView[k]);
+            for(size_t ind = 0; ind < numSamplesInNode; ++ind) {
+                    // Prefetch data for the next few iterations
+                if (ind + PREFETCH_SAMPLES < numSamplesInNode) {
+                    _mm_prefetch((const char*)&sampleIndicesView[ind + PREFETCH_SAMPLES], _MM_HINT_T0);
+                    _mm_prefetch((const char*)&features(sampleIndicesView[ind + PREFETCH_SAMPLES], fi), _MM_HINT_T0);
+                }
+                sortBuffer[ind] = std::move(SortItem<Feature>(features(sampleIndicesView[ind], fi), sampleIndicesView[ind]));
             }
-            std::sort(sortBuffer.begin(), sortBuffer.end());
+            std::sort(sortBuffer.begin(), sortBuffer.begin() + numSamplesInNode);
 
             //Update sampleIndices to reflect the new sorted order.
 
             
             for (size_t k = 0; k < numSamplesInNode; ++k) {
+                if (k + PREFETCH_SAMPLES < numSamplesInNode) 
+                    _mm_prefetch((const char*)&sortBuffer[k + PREFETCH_SAMPLES].sampleIndex, _MM_HINT_T0);
                 sampleIndicesView[k] = sortBuffer[k].sampleIndex;
             }
         #else
@@ -1066,7 +1072,7 @@ size_t DecisionNode<FEATURE, LABEL>::learn(
             ))
     );
     std::vector<size_t> featureIndicesBuffer(numberOfFeaturesToBeAssessed);
-    std::vector<SortItem<Feature>> sortBuffer;
+    std::vector<SortItem<Feature>> sortBuffer(features.shape(0));
     std::vector<size_t> randomSampleBuffer;
     auto randomEngine = 
         (randomSeed == 0) ? std::mt19937(std::random_device{}()) 
@@ -1118,13 +1124,17 @@ size_t DecisionNode<FEATURE, LABEL>::learn(
     this->threshold_ = currentOptimalThreshold;
 
     #if CACHE_OPTIMIZATION
-        sortBuffer.clear();
+
         const auto numSamplesInNode = sampleIndicesView.size();
-        sortBuffer.reserve(numSamplesInNode);
+
         for (size_t k = 0; k < numSamplesInNode; ++k) {
-            sortBuffer.emplace_back(features(sampleIndicesView[k], currentOptimalFeatureIndex), sampleIndicesView[k]);
+            if (k + PREFETCH_SAMPLES < numSamplesInNode){
+                _mm_prefetch((const char*)&sampleIndicesView[k + PREFETCH_SAMPLES], _MM_HINT_T0);
+                _mm_prefetch((const char*)&features(sampleIndicesView[k + PREFETCH_SAMPLES], currentOptimalFeatureIndex), _MM_HINT_T0);
+            }
+            sortBuffer[k] = std::move(SortItem<Feature>(features(sampleIndicesView[k], currentOptimalFeatureIndex), sampleIndicesView[k]));
         }
-        std::sort(sortBuffer.begin(), sortBuffer.end());
+        std::sort(std::execution::par, sortBuffer.begin(), sortBuffer.begin() + numSamplesInNode);
 
         for (size_t k = 0; k < numSamplesInNode; ++k) {
             sampleIndicesView[k] = sortBuffer[k].sampleIndex;
@@ -1393,7 +1403,6 @@ DecisionTree<FEATURE, LABEL>::learnWithFarm(
     
     farm.remove_collector(); 
     farm.wrap_around();
-    farm.set_scheduling_ondemand(); 
 
     // Run the farm
     if(farm.run_and_wait_end() < 0) {
@@ -1566,8 +1575,9 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
     decisionTrees_.resize(numberOfDecisionTrees);
     // Use the number of workers for the forest as determined by the estimator.
     ff::ParallelFor pf(forestWorkers, FOR_SPINWAIT, FOR_SPINBARRIER);
+    pf.blocking_mode();
     pf.parallel_for(
-        0, static_cast<ptrdiff_t>(decisionTrees_.size()), 1, std::min(FOR_CHUNK_SIZE, static_cast<int>(numberOfDecisionTrees / forestWorkers)),
+        0, static_cast<ptrdiff_t>(decisionTrees_.size()), 1, static_cast<int>(std::copysignf(1.0, static_cast<float>(FOR_CHUNK_SIZE)))*std::min(std::abs(FOR_CHUNK_SIZE), static_cast<int>(numberOfDecisionTrees / forestWorkers)),
         [&](ptrdiff_t treeIndex) {
             std::vector<size_t> sampleIndices(numberOfSamples);
             

@@ -55,7 +55,7 @@ def preprocess_data(file_path="../../data/susy/SUSY.csv", test_size=0.2, random_
     test_data = pd.DataFrame(X_test)
     test_data[len(test_data.columns)] = y_test
     test_data.to_csv(test_file, index=False, header=False)
-    paths_files = Path(__file__).parent.parent / "data" / "paths.txt"
+    paths_files = Path(__file__).parent.parent / "data" / "susy_paths.txt"
     with open(paths_files, 'w') as f:
         f.write(f"{train_file}\n{test_file}\n")
 

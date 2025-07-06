@@ -76,7 +76,8 @@
         "ranges": "cpp",
         "cinttypes": "cpp",
         "typeindex": "cpp",
-        "*.in": "cpp"
+        "*.in": "cpp",
+        "execution": "cpp"
     },
     "cmake.buildDirectory": "${workspaceFolder}/build",
     "cmake.configureOnOpen": true,

@@ -36,7 +36,7 @@ def preprocess_data(file_path="../../../data/iris/iris.data", test_size=0.2, ran
     test_file = path_to_save / f"test_{path_to_save.name}.csv"
     train_data.to_csv(train_file, index=False, header=False)
     test_data.to_csv(test_file, index=False, header=False)
-    paths_file = Path(__file__).parent / "paths.txt"
+    paths_file = Path(__file__).parent / "iris_paths.txt"
     with open(paths_file, 'w') as f:
         f.write(f"{train_file}\n{test_file}\n")
 

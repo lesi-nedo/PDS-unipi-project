@@ -70,6 +70,7 @@
 #include "ff/map.hpp"
 
 #include "ff_impl_config.h"
+ 
 
 #include "marray.h"
 
@@ -99,46 +100,38 @@ class OptimizedGiniCalculator {
 public:
     // Calculates sum_{i<j} counts[i]*counts[j] using the identity:
     // sum_{i<j} c_i*c_j = ( (sum c_i)^2 - sum(c_i^2) ) / 2
-    // This is much faster than a nested loop.
     static size_t computeDistinctPairs(const std::vector<size_t>& labelCounts, size_t totalSamples) {
         if (totalSamples < 2) {
             return 0;
         }
         
-        // 1. Calculate sum of squares (vectorized with AVX2)
-        // We use doubles for floating point SIMD instructions. This is safe as long
-        // as counts do not exceed 2^53, which is highly unlikely for sample counts.
+        
         __m256d sum_sq_vec = _mm256_setzero_pd();
         size_t i = 0;
         
-        // Process 4 counts (as doubles) at a time
         for (; i + 4 <= labelCounts.size(); i += 4) {
-            // Manual conversion from size_t to double for AVX2
+            
             double vals[4] = {
                 static_cast<double>(labelCounts[i]), static_cast<double>(labelCounts[i+1]),
                 static_cast<double>(labelCounts[i+2]), static_cast<double>(labelCounts[i+3])
             };
             __m256d counts_pd = _mm256_loadu_pd(vals);
 
-            // Fused-Multiply-Add can be slightly faster if available and applicable
+    
             sum_sq_vec = _mm256_add_pd(sum_sq_vec, _mm256_mul_pd(counts_pd, counts_pd));
         }
 
-        // Horizontal sum of the vector's partial sums
         alignas(32) double sum_sq_parts[4];
         _mm256_store_pd(sum_sq_parts, sum_sq_vec);
         double sum_of_squares = sum_sq_parts[0] + sum_sq_parts[1] + sum_sq_parts[2] + sum_sq_parts[3];
 
-        // Handle remaining elements not processed by SIMD
         for (; i < labelCounts.size(); ++i) {
             sum_of_squares += static_cast<double>(labelCounts[i]) * static_cast<double>(labelCounts[i]);
         }
 
-        // 2. Use the identity to find the number of distinct pairs
         double totalSamples_d = static_cast<double>(totalSamples);
         double total_pairs_d = ((totalSamples_d * totalSamples_d) - sum_of_squares) / 2.0;
         
-        // Add 0.5 for proper rounding before casting to size_t
         return static_cast<size_t>(total_pairs_d + 0.5);
     }
 };
@@ -281,10 +274,14 @@ public:
         
         WorkerRA2A(
             const andres::View<Feature>& features,
-            const andres::View<Label>& labels
+            const andres::View<Label>& labels,
+            const std::vector<std::vector<size_t>>& matrixSampleIndices
         ): 
             features_(features),
-            labels_(labels)
+            labels_(labels),
+            matrixSampleIndices_(matrixSampleIndices),
+            sortBuffer_(features_.shape(0)),
+            numberOfLabelsForSplit(2)
         {}
 
         RA2AN_out_t* svc(RA2AN_in_t* task) {
@@ -293,8 +290,12 @@ public:
                 return this->GO_ON;
             } else {
                 auto& [prevTask, numberOfClassesInSubset, fi] = std::get<VLA2A_out_t>(*task);
-                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd, subSampleIndices] = *prevTask;
+                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *prevTask;
                 auto bs = std::make_unique<BestSplit>();
+                const auto& subSampleIndices = std::ranges::subrange(
+                    matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
+                    matrixSampleIndices_[treeIndex].begin() + sampleIndexEnd
+                );
                 
                 const auto numSamplesInNode = subSampleIndices.size();
 #ifdef DEBUG
@@ -303,16 +304,21 @@ public:
                 assert(fi < features_.shape(1));
                 assert(numSamplesInNode > 0);
 #endif
-                sortBuffer_.clear();
-                sortBuffer_.reserve(numSamplesInNode);
-                for(size_t ind = 0; ind < numSamplesInNode; ++ind)
-                    sortBuffer_.emplace_back(features_(subSampleIndices[ind], fi), subSampleIndices[ind]);
                 
-                std::sort(sortBuffer_.begin(), sortBuffer_.end());
+                for(size_t ind = 0; ind < numSamplesInNode; ++ind) {
+                    // Prefetch data for the next few iterations
+                    if (ind + PREFETCH_SAMPLES < numSamplesInNode) {
+                        _mm_prefetch((const char*)subSampleIndices[ind + PREFETCH_SAMPLES], _MM_HINT_T0);
+                        _mm_prefetch((const char*)&features_(subSampleIndices[ind + PREFETCH_SAMPLES], fi), _MM_HINT_T0);
+                    }
+                    sortBuffer_[ind] = std::move(SortItem<Feature>(features_(subSampleIndices[ind], fi), subSampleIndices[ind]));
+                }
 
-                std::vector<size_t> numberOfLabelsForSplit[2];
-                numberOfLabelsForSplit[0].assign(numberOfClassesInSubset, 0);
-                numberOfLabelsForSplit[1].assign(numberOfClassesInSubset, 0);
+                std::sort(sortBuffer_.begin(), sortBuffer_.begin() + numSamplesInNode);
+
+                
+                numberOfLabelsForSplit[0].resize(numberOfClassesInSubset, 0);
+                numberOfLabelsForSplit[1].resize(numberOfClassesInSubset, 0);
 
                 std::vector numberOfElements {0, numSamplesInNode};
 
@@ -360,10 +366,10 @@ public:
                         }   
                     }
 
-                    std::vector giniCoefficient {0.0d, 0.0d};
+                    std::vector giniCoefficient {0.0, 0.0};
                     for(size_t s = 0; s < 2; ++s) 
                         if(numberOfElements[s] < 2){
-                            giniCoefficient[s] = 0.0d;
+                            giniCoefficient[s] = 0.0;
                         } else {
                             giniCoefficient[s] = 
                                 static_cast<double>(numberOfDistinctPairs[s]) /
@@ -402,7 +408,9 @@ public:
 
         const andres::View<Feature>& features_;
         const andres::View<Label>& labels_;
+        const std::vector<std::vector<size_t>>& matrixSampleIndices_;
         std::vector<SortItem<Feature>> sortBuffer_;
+        std::vector<std::vector<size_t>> numberOfLabelsForSplit;
 
     };
 
@@ -412,16 +420,24 @@ public:
             const andres::View<Feature>& features,
             const andres::View<Label>& labels,
             const size_t numberOfFeaturesToBeAssessed,
+            const std::vector<std::vector<size_t>>& matrixSampleIndices,
             const int& randomSeed
         ): 
             features_(features),
             labels_(labels),
             numberOfFeaturesToBeAssessed_(numberOfFeaturesToBeAssessed),
-            randomSeed_(randomSeed)
+            matrixSampleIndices_(matrixSampleIndices),
+            randomSeed_(randomSeed),
+            featureIndicesBuffer_( numberOfFeaturesToBeAssessed_),
+            randomSamplerBuffer_(features.shape(1))
         {}
 
         LA2AN_out_t* svc(LA2AN_in_t* task) {
-            auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd, subSampleIndices] = *task;
+            auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *task;
+            const auto& subSampleIndices = std::ranges::subrange(
+                matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
+                matrixSampleIndices_[treeIndex].begin() + sampleIndexEnd
+            );
 
             bool isLabelUnique = true;
             const size_t firstLabelIndex = subSampleIndices[0];
@@ -472,13 +488,13 @@ public:
             
             const auto numberOfClassesInSubset = static_cast<size_t>(maxLabel) + 1;
 
-            std::vector<size_t> featureIndicesBuffer( numberOfFeaturesToBeAssessed_ );
-            std::vector<size_t> randomSamplerBuffer;
+            
+            
             auto randomEngie = std::mt19937((randomSeed_ == 0) ? 0 : (randomSeed_ + sampleIndexBegin + treeIndex));
 
             sampleSubsetWithoutReplacement(
                 features_.shape(1), numberOfFeaturesToBeAssessed_,
-                featureIndicesBuffer, randomEngie, randomSamplerBuffer
+                featureIndicesBuffer_, randomEngie, randomSamplerBuffer_
             );
             
             for(size_t ind = 0; ind < numberOfFeaturesToBeAssessed_; ++ind) {
@@ -486,7 +502,7 @@ public:
                 this->ff_send_out(
                     new LA2AN_out_t(
                         std::make_tuple(
-                            task, numberOfClassesInSubset, featureIndicesBuffer[ind]
+                            task, numberOfClassesInSubset, featureIndicesBuffer_[ind]
                         )
                     )
                 );
@@ -499,7 +515,9 @@ public:
         const andres::View<Label>& labels_;
         const size_t numberOfFeaturesToBeAssessed_;
         const int randomSeed_;
-
+        std::vector<size_t> featureIndicesBuffer_;
+        std::vector<size_t> randomSamplerBuffer_;
+        const std::vector<std::vector<size_t>>& matrixSampleIndices_;
 
 
     };
@@ -569,7 +587,7 @@ public:
     typedef DecisionTree<Feature, Label> DecisionTreeType;
 
     using FEN_in_t = std::pair<std::tuple<decltype(NEW_TREE), size_t, std::unique_ptr<typename DecisionTreeType::DecisionNodeType>, int, size_t, size_t, size_t, size_t, size_t>, decltype(ORDER_INDICES)>;
-    using FEN_out_t = std::tuple<size_t, int, size_t, size_t, size_t, size_t, std::vector<size_t>>;
+    using FEN_out_t = std::tuple<size_t, int, size_t, size_t, size_t, size_t>;
     
     typedef FEN_in_t FCN_out_t;
     typedef DecisionTreeType::DecisionNodeType::RA2AN_out_t FCN_in_t;
@@ -662,7 +680,7 @@ private:
         
             this->ff_send_out(
                 new FEN_out_t(
-                    treeIndex, ROOT_NODE, 0, 0, 0, matrixSampleIndices_[treeIndex].size(), matrixSampleIndices_[treeIndex]
+                    treeIndex, ROOT_NODE, 0, 0, 0, matrixSampleIndices_[treeIndex].size()
                 )
             );
             
@@ -677,13 +695,18 @@ private:
             auto orderSampleIndices = task->second;
 
             if(orderSampleIndices){
-                sortItems_.clear();
                 sortItems_.resize(sampleIndexEnd - sampleIndexBegin);
                 for(size_t ind = 0; ind < sortItems_.size(); ++ind) {
+                    // Prefetch data for the next few iterations
+                    if (ind + PREFETCH_SAMPLES < sortItems_.size()) {
+                        _mm_prefetch((const char*)&matrixSampleIndices_[treeIndex][ind+sampleIndexBegin+PREFETCH_SAMPLES], _MM_HINT_T0);
+                        _mm_prefetch((const char*)&features_(matrixSampleIndices_[treeIndex][ind+sampleIndexBegin+PREFETCH_SAMPLES], newNode->featureIndex()), _MM_HINT_T0);
+                    }
                     sortItems_[ind] = std::move(SortItem<Feature>{
                         features_(matrixSampleIndices_[treeIndex][ind+sampleIndexBegin], newNode->featureIndex()),
                         matrixSampleIndices_[treeIndex][ind+sampleIndexBegin]
                     });
+                    
                 }
                 std::sort(sortItems_.begin(), sortItems_.end());
                 for(size_t ind = 0; ind < sortItems_.size(); ++ind)
@@ -739,20 +762,14 @@ private:
                 this->ff_send_out(
                     new FEN_out_t(
                         treeIndex, LEFT_NODE, entry.nodeIndex_, nodeIndexNewLeft, entry.sampleIndexBegin_, 
-                        entry.thresholdIndex_, std::move(std::vector<size_t>(
-                            matrixSampleIndices_[treeIndex].begin() + entry.sampleIndexBegin_,
-                            matrixSampleIndices_[treeIndex].begin() + entry.thresholdIndex_
-                        )))
-                );
+                        entry.thresholdIndex_
+                ));
 
                 this->ff_send_out(
                     new FEN_out_t(
                         treeIndex, RIGHT_NODE, entry.nodeIndex_, nodeIndexNewRight, entry.thresholdIndex_, 
-                        entry.sampleIndexEnd_, std::move(std::vector<size_t>(
-                            matrixSampleIndices_[treeIndex].begin() + entry.thresholdIndex_,
-                            matrixSampleIndices_[treeIndex].begin() + entry.sampleIndexEnd_
-                        )))
-                );
+                        entry.sampleIndexEnd_
+                    ));
                 tasksInFlight_ += 2;
             }
 
@@ -797,11 +814,13 @@ private:
         TrainCollector(
             const andres::View<Feature>& features,
             const andres::View<Label>& labels,
-            const size_t numberOfFeaturesToBeAssessed
+            const size_t numberOfFeaturesToBeAssessed,
+            const std::vector<std::vector<size_t>>& matrixSampleIndices
         ): 
             features_(features),
             labels_(labels),
-            numberOfFeaturesToBeAssessed_(numberOfFeaturesToBeAssessed)
+            numberOfFeaturesToBeAssessed_(numberOfFeaturesToBeAssessed),
+            matrixSampleIndices_(matrixSampleIndices)
         {}
 
         FCN_out_t* svc(FCN_in_t* task) {
@@ -810,12 +829,15 @@ private:
                 return this->GO_ON;
             } else {
                 auto& [prevTask, numberOfClassesInSubset, splitObj] = std::get<typename DecisionTreeType::DecisionNodeType::VRA2A_out_t>(*task);
-                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd, subSampleIndices] = *prevTask;
+                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *prevTask;
                 auto key = std::make_tuple(
                     treeIndex, nodeType, parentIndex, childIndex
                 );
                 
-                
+                const auto& subSampleIndices = std::ranges::subrange(
+                    matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
+                    matrixSampleIndices_[treeIndex].begin() + sampleIndexEnd
+                );
                 if(auto it = countsFeatures_.find(key); it != countsFeatures_.end()) {
                     ++it->second.first;
                     if(it->second.second->gini > splitObj->gini ||
@@ -832,8 +854,8 @@ private:
 
                             // No valid split found, create a leaf node
                             newNode->isLeaf() = true;
-                            labelCounts_.clear();
-                            labelCounts_.resize(numberOfClassesInSubset, 0);
+                            labelCounts_.resize(numberOfClassesInSubset);
+                            std::fill(labelCounts_.begin(), labelCounts_.end(), 0);
                             for(const auto& sampleIndex : subSampleIndices)
                                 ++labelCounts_[labels_(sampleIndex)];
                             
@@ -895,6 +917,7 @@ private:
         const andres::View<Feature>& features_;
         const andres::View<Label>& labels_;
         const size_t numberOfFeaturesToBeAssessed_;
+        const std::vector<std::vector<size_t>>& matrixSampleIndices_;
 
         MapType countsFeatures_;
         std::vector<size_t> labelCounts_;
@@ -946,37 +969,51 @@ private:
 
         PWN_out_t* svc(PWN_in_t* task) {
             auto& [samplesBegin, samplesEnd, indexTree] = *task;
+            auto& tree = decisionTrees_[indexTree];
 #if defined(DEBUG)
             assert(samplesBegin < samplesEnd);
             assert(indexTree < decisionTrees_.size());
             assert(samplesEnd <= features_.shape(0));
             assert(samplesBegin < features_.shape(0));
 #endif
-            const auto numSamples = samplesEnd - samplesBegin;
-            std::vector<Label> labels(numSamples);
-            auto& tree = decisionTrees_[indexTree];
-            for(size_t ind=samplesBegin; ind < samplesEnd; ++ind) {
-                size_t nodeIndex = 0;
+            constexpr size_t BATCH = static_cast<size_t>(BATCH_SAMPLES_TO_PREDICT);
+            std::vector<Label> labels(samplesEnd - samplesBegin);
 
-                while(true) {
-                    const auto& node = tree.decisionNode(nodeIndex);
-                    if(node.isLeaf()) {
-                        break; // If we reached a leaf node, break the loop.
+            for(size_t base = samplesBegin; base < samplesEnd; base += BATCH) {
+                const size_t len = std::min(BATCH, samplesEnd - base);
+
+                size_t nodeIdx[BATCH];
+                bool   done[BATCH] = {false};
+
+                for(size_t b = 0; b < len; ++b) nodeIdx[b] = 0;
+
+                bool allDone = false;
+                while(!allDone) {
+                    allDone = true;
+                    for(size_t b = 0; b < len; ++b) {
+                        if(done[b]) continue;
+                        const auto& nd = tree.decisionNode(nodeIdx[b]);
+                        if(nd.isLeaf()) {
+                            done[b] = true;
+                        } else {
+                            allDone = false;
+                            auto fi   = nd.featureIndex();
+                            auto th   = nd.threshold();
+                            auto fval = features_(base + b, fi);
+                            nodeIdx[b] = (fval < th)
+                            ? nd.childNodeIndex(LEFT_NODE)
+                            : nd.childNodeIndex(RIGHT_NODE);
+                        }
                     }
-                    if(features_(ind, node.featureIndex()) < node.threshold()) {
-                        nodeIndex = node.childNodeIndex(LEFT_NODE);
-                    } else {
-                        nodeIndex = node.childNodeIndex(RIGHT_NODE);
-                    }
-#if defined(DEBUG)
-                    assert(nodeIndex != 0);
-                    assert(nodeIndex < tree.size());
-                    assert(node.featureIndex() < features_.shape(1));
-                    assert(ind < features_.shape(0));
-#endif
                 }
-                labels[ind - samplesBegin] = tree.decisionNode(nodeIndex).label();
+
+                // write out final labels
+                for(size_t b = 0; b < len; ++b) {
+                    labels[base - samplesBegin + b] =
+                    tree.decisionNode(nodeIdx[b]).label();
+                }
             }
+
             this->ff_send_out(
                 new PWN_out_t(samplesBegin, samplesEnd, std::move(labels))
             );
@@ -1479,7 +1516,8 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
         numberOfDecisionTrees,
         static_cast<size_t>(WN_SECOND_NUM_WORKERS)
     );
-
+    wnSecWorekers = std::min(numberOfFeaturesToBeAssessed, wnSecWorekers);
+    efWorkers = std::min(efWorkers, numberOfDecisionTrees);
     efWorkers = std::max(efWorkers, static_cast<size_t>(1)); // Ensure at least one farm is created.
     std::cout << "Using " << efWorkers << " farms for training." << std::endl;
     std::cout << "Using " << WN_FIRST_NUM_WORKERS << " workers for left set and "
@@ -1488,12 +1526,15 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
     auto farm_builder = [&](){
         std::vector<std::unique_ptr<ff::ff_farm>> farms;
         for(size_t curr_farm{0}; curr_farm < efWorkers; ++curr_farm) {
-            
+            emitters.emplace_back(std::make_unique<TrainEmitter>(
+                features, labels, decisionTrees_, randomSeed
+            ));
+
             workersLA2A_sets.emplace_back();
             for(size_t i = 0; i < WN_FIRST_NUM_WORKERS; ++i) 
                 workersLA2A_sets.back().push_back(
                     new WorkerLA2A_t(
-                        features, labels, numberOfFeaturesToBeAssessed, randomSeed
+                        features, labels, numberOfFeaturesToBeAssessed,  emitters.back()->matrixSampleIndices_, randomSeed
                     )
                 );
 
@@ -1501,27 +1542,27 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
             for(size_t i = 0; i < wnSecWorekers; ++i) 
                 workersRA2A_sets.back().push_back(
                     new WorkerRA2A_t(
-                        features, labels
+                        features, labels, emitters.back()->matrixSampleIndices_
                     )
                 );
 
             a2a_nodes.push_back(std::make_unique<ff::ff_a2a>());
             a2a_nodes.back()->add_firstset(workersLA2A_sets.back());
             a2a_nodes.back()->add_secondset(workersRA2A_sets.back());
+            a2a_nodes.back()->no_mapping();
 
-            emitters.emplace_back(std::make_unique<TrainEmitter>(
-                features, labels, decisionTrees_, randomSeed
-            ));
+           
 
             collectors.emplace_back(std::make_unique<TrainCollector>(
-                features, labels, numberOfFeaturesToBeAssessed
+                features, labels, numberOfFeaturesToBeAssessed, emitters.back()->matrixSampleIndices_
             ));
-            farms.emplace_back(std::make_unique<ff::ff_farm>(false, numberOfDecisionTrees*sizeof(FEN_in_t), numberOfDecisionTrees*sizeof(FEN_out_t)));
+            farms.emplace_back(std::make_unique<ff::ff_farm>(false));
             farms[curr_farm]->add_emitter(emitters.back().get());
             farms[curr_farm]->add_workers({a2a_nodes.back().get()});
-            farms[curr_farm]->add_collector(collectors.back().get());
-            farms[curr_farm]->wrap_around();
+            farms[curr_farm]->add_collector(reinterpret_cast<ff::ff_node*>(collectors.back().get()));
             farms[curr_farm]->blocking_mode();
+            farms[curr_farm]->wrap_around();
+            
         }
         return std::move(farms);
     };
@@ -1630,6 +1671,7 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
         generator
     );
     generalFarm.remove_collector();
+    generalFarm.set_scheduling_ondemand();
     generalFarm.blocking_mode();
     if(generalFarm.run_and_wait_end() < 0) {
         throw std::runtime_error("Error during decision forest prediction with FastFlow network.");

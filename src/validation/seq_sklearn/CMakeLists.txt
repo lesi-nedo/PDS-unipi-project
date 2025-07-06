@@ -61,7 +61,7 @@ else()
     message(FATAL_ERROR "Data preprocessing failed: ${preprocess_error}")
 endif()
 
-set(PATHS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/paths.txt")
+set(PATHS_FILE "${CMAKE_CURRENT_SOURCE_DIR}/iris_paths.txt")
 
 if(NOT EXISTS "${PATHS_FILE}")
     message(FATAL_ERROR "Paths file not found: ${PATHS_FILE}. Please ensure the preprocessing script has created it.")

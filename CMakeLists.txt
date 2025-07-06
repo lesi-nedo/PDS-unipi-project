@@ -4,6 +4,7 @@ project(RandomForsetParallel VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
@@ -24,11 +25,12 @@ option(BUILD_MPI "Build MPI implementation with FastFlow" ON)
 option(BUILD_TESTS "Build tests" ON)
 option(BUILD_VALSEQ "Build sequential Random Forset and Validate against Scikit-learn One" OFF)
 option(BUILD_SEQUENTIAL "Build Sequential Random Forset" OFF)
+option(BUILD_FFVAL "Build FastFlow Validation" OFF)
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
-set(PATHS_FILE "${CMAKE_SOURCE_DIR}/src/data/paths.txt")
+set(PATHS_FILE "${CMAKE_SOURCE_DIR}/src/data/susy_paths.txt")
 set(RF_CONF_FILE "${CMAKE_SOURCE_DIR}/src/general.conf" CACHE STRING "The path to the configuration file for FastFlow implementation")
 
 # add_subdirectory(utils)
@@ -60,7 +62,6 @@ endif()
 
 add_subdirectory(
     "${CMAKE_SOURCE_DIR}/src/data"
-    "${CMAKE_CURRENT_BINARY_DIR}/data"
 )
 
 if(NOT EXISTS "${PATHS_FILE}")
@@ -280,6 +281,12 @@ if(BUILD_VALSEQ)
     message(STATUS "Building sequential Random Forset and validation against Scikit-learn")
     add_subdirectory(src/validation/seq_sklearn)
 endif()
+
+if(BUILD_FFVAL)
+    message(STATUS "Building FastFlow Validation")
+    add_subdirectory(src/validation/ff_sklearn)
+endif()
+
 
 if(BUILD_SEQUENTIAL)
     message(STATUS "Building Sequential Random Forset")
