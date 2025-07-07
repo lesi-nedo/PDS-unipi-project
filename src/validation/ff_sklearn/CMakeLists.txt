@@ -34,6 +34,7 @@ target_include_directories(
     "${CMAKE_SOURCE_DIR}/src/utils"
     "${CMAKE_SOURCE_DIR}/src/"
     "${CMAKE_SOURCE_DIR}/src/fastflow"
+    "${CMAKE_SOURCE_DIR}/external/fastflow"
 )
 
 # add_custom_target(
