@@ -22,7 +22,7 @@
 
 // Prediction configuration
 #define PEN_NUM_WORKERS 32 
-#define MAX_PWN_NUM_WORKERS 4
+#define MAX_PWN_NUM_WORKERS 1
 #define CHUNK_SIZE_TO_PREDICT 50000
 #define BATCH_SAMPLES_TO_PREDICT 32
 #define PREFETCH_SAMPLES 24
@@ -30,7 +30,6 @@
 // General configuration
 #define RESULTS_PATH_EXP2 "/home/lesi-nedo/Desktop/master/first-year/second-semester/PDS/project/results/fastflow_impl2"
 #define RESULTS_PATH_EXP1 "/home/lesi-nedo/Desktop/master/first-year/second-semester/PDS/project/results/fastflow_impl1"
-#define CACHE_OPTIMIZATION true
 
 
 #endif

@@ -46,8 +46,8 @@
 /// ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// 
 #pragma once
-#ifndef ANDRES_ML_DECISION_FOREST_HXX
-#define ANDRES_ML_DECISION_FOREST_HXX
+#ifndef ANDRES_ML_FF_EXP1_DECISION_FOREST_HXX
+#define ANDRES_ML_FF_EXP1_DECISION_FOREST_HXX
 
 #include <stdexcept>
 #include <random>
@@ -796,7 +796,10 @@ DecisionNode<FEATURE, LABEL>::helperParallelMap(
                         std::abs(static_cast<double>(numbersOfElements[0]) - static_cast<double>(numbersOfElements[1]))
                         / static_cast<double>(numbersOfElements[0] + numbersOfElements[1]);
             if(sumOfGiniCoefficients < bs_feature.gini ||
-                (sumOfGiniCoefficients == bs_feature.gini && currentBalance < bs_feature.balance)
+                (sumOfGiniCoefficients == bs_feature.gini && 
+                    (currentBalance < bs_feature.balance || 
+                        (currentBalance == bs_feature.balance && 
+                            thresholdIndexLoopVar > bs_feature.relativeThresholdIndex)) )
             ) {
                 bs_feature.balance = currentBalance;
                 bs_feature.gini = sumOfGiniCoefficients;
@@ -805,7 +808,10 @@ DecisionNode<FEATURE, LABEL>::helperParallelMap(
             }
         }
         if(bs_feature.gini < bs_temp.gini ||
-            (bs_feature.gini == bs_temp.gini && bs_feature.balance < bs_temp.balance)
+            (bs_feature.gini == bs_temp.gini && 
+                (bs_feature.balance < bs_temp.balance || 
+                    (bs_feature.balance == bs_temp.balance && 
+                        bs_feature.relativeThresholdIndex > bs_temp.relativeThresholdIndex)) )
         ) {
             bs_temp = bs_feature;
         }
@@ -997,7 +1003,10 @@ inline std::tuple<double, size_t, FEATURE, size_t> DecisionNode<FEATURE, LABEL>:
                 std::abs(static_cast<double>(numbersOfElements[0]) - static_cast<double>(numbersOfElements[1]))
                 / static_cast<double>(numbersOfElements[0] + numbersOfElements[1]);
             if(sumOfginiCoefficients < optimalSumOfGiniCoefficients ||
-                (sumOfginiCoefficients == optimalSumOfGiniCoefficients && currentBalance < bestBalance)
+                (sumOfginiCoefficients == optimalSumOfGiniCoefficients && 
+                    (currentBalance < bestBalance || 
+                        (currentBalance == bestBalance && 
+                            thresholdIndexLoopVar > currentOptimalThresholdIndex)) )
             ) {
                 bestBalance = currentBalance;
                 optimalSumOfGiniCoefficients = sumOfginiCoefficients;
@@ -1076,7 +1085,7 @@ size_t DecisionNode<FEATURE, LABEL>::learn(
     std::vector<size_t> randomSampleBuffer;
     auto randomEngine = 
         (randomSeed == 0) ? std::mt19937(std::random_device{}()) 
-                          : std::mt19937(randomSeed+sampleIndexBegin);
+                          : std::mt19937(randomSeed+sampleIndexBegin + 1);
     sampleSubsetWithoutReplacement(
         numberOfFeatures, 
         numberOfFeaturesToBeAssessed,
@@ -1656,7 +1665,8 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
 
     // reduction: element‐wise add
     auto reduce = [&](ProbArray & acc, const ProbArray & val) {
-        auto a = acc.begin(), b = val.begin();
+        auto a = acc.begin();
+        auto b = val.begin();
         for(; a != acc.end(); ++a, ++b) {
             *a += *b;
         }

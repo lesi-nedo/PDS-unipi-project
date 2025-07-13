@@ -20,10 +20,12 @@ add_executable(
 target_include_directories(
     sequential_impl
     PRIVATE
+    "${CMAKE_SOURCE_DIR}/include/"
     "${CMAKE_SOURCE_DIR}/include/sequential"
-    "${CMAKE_SOURCE_DIR}/src/utils"
     "${CMAKE_SOURCE_DIR}/src/"
+    "${CMAKE_SOURCE_DIR}/src/utils"
     "${CMAKE_CURRENT_SOURCE_DIR}"
+    
 )
 
 add_custom_target(

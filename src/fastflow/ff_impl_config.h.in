@@ -30,7 +30,6 @@
 // General configuration
 #define RESULTS_PATH_EXP2 "@RESULTS_PATH_EXP2@"
 #define RESULTS_PATH_EXP1 "@RESULTS_PATH_EXP1@"
-#define CACHE_OPTIMIZATION @CACHE_OPTIMIZATION@
 
 
 #endif

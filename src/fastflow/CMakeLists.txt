@@ -71,7 +71,7 @@ add_executable(
 target_include_directories(
     ff_impl_exp1
     PRIVATE
-    "${CMAKE_SOURCE_DIR}/include/sequential"
+    "${CMAKE_SOURCE_DIR}/include/"
     "${CMAKE_SOURCE_DIR}/src/utils" 
     "${CMAKE_SOURCE_DIR}/src/"
     "${CMAKE_SOURCE_DIR}/external/fastflow/"
@@ -80,7 +80,7 @@ target_include_directories(
 target_include_directories(
     ff_impl_exp2
     PRIVATE
-    "${CMAKE_SOURCE_DIR}/include/sequential"
+    "${CMAKE_SOURCE_DIR}/include/"
     "${CMAKE_SOURCE_DIR}/src/utils" 
     "${CMAKE_SOURCE_DIR}/src/"
     "${CMAKE_SOURCE_DIR}/external/fastflow/"

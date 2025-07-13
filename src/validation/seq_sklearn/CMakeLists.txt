@@ -88,7 +88,9 @@ add_executable(sq_random_forest
 target_include_directories(sq_random_forest
     PRIVATE
         "${CMAKE_SOURCE_DIR}/src/utils"
-        "${CMAKE_SOURCE_DIR}/include/sequential")
+        "${CMAKE_SOURCE_DIR}/include/sequential"
+        "${CMAKE_SOURCE_DIR}/include"
+)
 
 add_custom_target(
     run_sq_random_forest

@@ -31,18 +31,28 @@ target_include_directories(
     local_ff_impl_exp2
     PRIVATE
     "${CMAKE_SOURCE_DIR}/include/sequential"
+    "${CMAKE_SOURCE_DIR}/include"
     "${CMAKE_SOURCE_DIR}/src/utils"
     "${CMAKE_SOURCE_DIR}/src/"
     "${CMAKE_SOURCE_DIR}/src/fastflow"
     "${CMAKE_SOURCE_DIR}/external/fastflow"
 )
+# Ask an input to the user to choose the implementation
 
-# add_custom_target(
-#     run_ff_impl_validation
-#     COMMAND ${Python3_EXECUTABLE}
-#             "${CMAKE_SOURCE_DIR}/src/validation/ff_sklearn/validate.py"
-#             "${TRAIN_DATA_PATH}" "${TEST_DATA_PATH}"
-#     DEPENDS ff_impl_exp2
-#     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-#     COMMENT "Running FastFlow Validation on SUSY dataset"
-# )
+add_custom_target(
+    run_local_ff_impl_exp2
+    COMMAND $<TARGET_FILE:local_ff_impl_exp2> "${TRAIN_DATA_PATH}" "${TEST_DATA_PATH}"
+    DEPENDS local_ff_impl_exp2
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Running FastFlow Random Forest on SUSY dataset"
+)
+
+add_custom_target(
+    run_ff_impl_validation
+    COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/src/validation/ff_sklearn/validate.py"
+            "${TRAIN_DATA_PATH}" "${TEST_DATA_PATH}" "${CMAKE_SOURCE_DIR}/results/validation/ff_sklearn/"
+    DEPENDS run_local_ff_impl_exp2
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    COMMENT "Running FastFlow Validation on SUSY dataset"
+)

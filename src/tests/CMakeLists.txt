@@ -9,6 +9,7 @@ add_executable(test_utils
 target_include_directories(test_utils
     PRIVATE
         "${CMAKE_SOURCE_DIR}/src/utils"
+        "${CMAKE_SOURCE_DIR}/include/"
         "${CMAKE_SOURCE_DIR}/include/sequential"
 )
 target_link_libraries(test_utils GTest::gtest GTest::gtest_main)

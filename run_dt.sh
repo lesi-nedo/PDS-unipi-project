@@ -7,6 +7,8 @@ fi
 
 cd build || exit 1
 
+rm -rf ./*
+
 # switch to an array
 declare -a CMAKE_ARGS
 CMAKE_ARGS=(-DCMAKE_BUILD_TYPE=Release)
@@ -37,4 +39,3 @@ cd ..
 if [[ ! "$1" =~ ^run ]]; then
   ./build/bin/"$1" ./data/susy/train_susy.csv ./data/susy/test_susy.csv
 fi
-

@@ -46,8 +46,8 @@
 /// ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// 
 #pragma once
-#ifndef ANDRES_ML_DECISION_FOREST_HXX
-#define ANDRES_ML_DECISION_FOREST_HXX
+#ifndef ANDRES_ML_FF_EXP2_DECISION_FOREST_HXX
+#define ANDRES_ML_FF_EXP2_DECISION_FOREST_HXX
 
 #include <stdexcept>
 #include <random>
@@ -292,7 +292,7 @@ public:
                 auto& [prevTask, numberOfClassesInSubset, fi] = std::get<VLA2A_out_t>(*task);
                 auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *prevTask;
                 auto bs = std::make_unique<BestSplit>();
-                const auto& subSampleIndices = std::ranges::subrange(
+                auto subSampleIndices = std::ranges::subrange(
                     matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
                     matrixSampleIndices_[treeIndex].begin() + sampleIndexEnd
                 );
@@ -317,8 +317,8 @@ public:
                 std::sort(sortBuffer_.begin(), sortBuffer_.begin() + numSamplesInNode);
 
                 
-                numberOfLabelsForSplit[0].resize(numberOfClassesInSubset, 0);
-                numberOfLabelsForSplit[1].resize(numberOfClassesInSubset, 0);
+                numberOfLabelsForSplit[0].assign(numberOfClassesInSubset, 0);
+                numberOfLabelsForSplit[1].assign(numberOfClassesInSubset, 0);
 
                 std::vector numberOfElements {0, numSamplesInNode};
 
@@ -380,7 +380,10 @@ public:
                         std::abs(static_cast<double>(numberOfElements[0]) - static_cast<double>(numberOfElements[1]))
                         / static_cast<double>(numberOfElements[0] + numberOfElements[1]);
                     if(sumGiniCoefficient < bs->gini ||
-                          (sumGiniCoefficient == bs->gini && currentBalance < bs->balance)
+                          (sumGiniCoefficient == bs->gini && 
+                            (currentBalance < bs->balance || 
+                             (currentBalance == bs->balance && 
+                              fi > bs->featureIndex)))
                     ) {
                         bs->balance = currentBalance;
                         bs->gini = sumGiniCoefficient;
@@ -434,7 +437,7 @@ public:
 
         LA2AN_out_t* svc(LA2AN_in_t* task) {
             auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *task;
-            const auto& subSampleIndices = std::ranges::subrange(
+            auto subSampleIndices = std::ranges::subrange(
                 matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
                 matrixSampleIndices_[treeIndex].begin() + sampleIndexEnd
             );
@@ -490,7 +493,7 @@ public:
 
             
             
-            auto randomEngie = std::mt19937((randomSeed_ == 0) ? 0 : (randomSeed_ + sampleIndexBegin + treeIndex));
+            auto randomEngie = std::mt19937((randomSeed_ == 0) ? 0 : (randomSeed_ + sampleIndexBegin + treeIndex + 1));
 
             sampleSubsetWithoutReplacement(
                 features_.shape(1), numberOfFeaturesToBeAssessed_,
@@ -540,7 +543,6 @@ public:
     DecisionTree();
     void deserialize(std::istream&);
     size_t size() const; // number of decision nodes
-    void predict(const andres::View<Feature>&, std::vector<Label>&) const;
     const DecisionNodeType& decisionNode(const size_t) const;
     void serialize(std::ostream&) const;
     DecisionNodeType& operator[](const size_t);
@@ -677,7 +679,7 @@ private:
                 matrixSampleIndices_[treeIndex], 
                 randomEngine_
             );
-        
+
             this->ff_send_out(
                 new FEN_out_t(
                     treeIndex, ROOT_NODE, 0, 0, 0, matrixSampleIndices_[treeIndex].size()
@@ -758,7 +760,6 @@ private:
                 assert(entry.thresholdIndex_ > entry.sampleIndexBegin_);
                 assert(entry.thresholdIndex_ < entry.sampleIndexEnd_);
 #endif            
-                
                 this->ff_send_out(
                     new FEN_out_t(
                         treeIndex, LEFT_NODE, entry.nodeIndex_, nodeIndexNewLeft, entry.sampleIndexBegin_, 
@@ -833,15 +834,17 @@ private:
                 auto key = std::make_tuple(
                     treeIndex, nodeType, parentIndex, childIndex
                 );
-                
-                const auto& subSampleIndices = std::ranges::subrange(
+                auto subSampleIndices = std::ranges::subrange(
                     matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
                     matrixSampleIndices_[treeIndex].begin() + sampleIndexEnd
                 );
                 if(auto it = countsFeatures_.find(key); it != countsFeatures_.end()) {
                     ++it->second.first;
                     if(it->second.second->gini > splitObj->gini ||
-                       (it->second.second->gini == splitObj->gini && it->second.second->balance > splitObj->balance)
+                       (it->second.second->gini == splitObj->gini && 
+                        (it->second.second->balance > splitObj->balance ||
+                         (it->second.second->balance == splitObj->balance && 
+                          it->second.second->featureIndex < splitObj->featureIndex)) )
                     ) {
 
                         it->second.second = std::move(splitObj);
@@ -854,8 +857,8 @@ private:
 
                             // No valid split found, create a leaf node
                             newNode->isLeaf() = true;
-                            labelCounts_.resize(numberOfClassesInSubset);
-                            std::fill(labelCounts_.begin(), labelCounts_.end(), 0);
+                            
+                            labelCounts_.assign(numberOfClassesInSubset, 0);
                             for(const auto& sampleIndex : subSampleIndices)
                                 ++labelCounts_[labels_(sampleIndex)];
                             
@@ -1029,27 +1032,31 @@ private:
     struct PredCollector: ff::ff_minode_t<PWN_out_t, size_t> {
         PredCollector(
             std::vector<Label>& labels,
-            andres::Marray<Probability>& probabilities
+            std::vector<std::shared_ptr<std::atomic<int>>>& probabilities,
+            size_t cols
         )
             : labels_(labels),
-              probabilities_(probabilities)
+              probabilities_(probabilities),
+              cols_(cols)
         {}
         size_t* svc(PWN_out_t* task) {
             auto& [samplesBegin, samplesEnd, labels] = *task;
-            const auto numSamples = samplesEnd - samplesBegin;
             for(size_t ind = samplesBegin; ind < samplesEnd; ++ind) {
-                labels_[ind] = labels[ind - samplesBegin];
+                size_t label = labels[ind - samplesBegin];
+                labels_[ind] = label;
 #if defined(DEBUG)
                 assert(ind < labels_.size());
+                assert(ind * cols_ + label < probabilities_.size());
 #endif
-                ++probabilities_(ind, labels_[ind]);
+                probabilities_[ind * cols_ + label]->fetch_add(1, std::memory_order_relaxed);
             }
             
             delete task; // Clean up the task after sending it out.
             return this->GO_ON; // Continue processing.
         }
         std::vector<Label>& labels_;
-        andres::Marray<Probability>& probabilities_;
+        std::vector<std::shared_ptr<std::atomic<int>>>& probabilities_;
+        size_t cols_;
     };
 
     struct PredEmitter: ff::ff_monode_t<size_t,PEN_out_t>{
@@ -1358,43 +1365,6 @@ DecisionTree<FEATURE, LABEL>::decisionNode(
     return decisionNodes_[decisionNodeIndex];
 }
 
-/// Predicts the labels of feature vectors.
-///
-/// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
-/// \param labels A vector of labels, one for each sample. (output)
-///
-template<class FEATURE, class LABEL>
-inline void 
-DecisionTree<FEATURE, LABEL>::predict(
-    const andres::View<Feature>& features,
-    std::vector<Label>& labels
-) const  {
-    const size_t numberOfSamples = features.shape(0);
-    const size_t numberOfFeatures = features.shape(1);
-    labels.resize(numberOfSamples);
-    for(size_t j = 0; j < numberOfSamples; ++j) {
-        size_t nodeIndex = 0;
-        for(;;) {
-            const DecisionNodeType& decisionNode = decisionNodes_[nodeIndex];
-            if(decisionNode.isLeaf()) {
-                labels[j] = decisionNode.label();
-                break;
-            }
-            else {
-                const size_t fi = decisionNode.featureIndex();
-                const Feature threshold = decisionNode.threshold();
-                assert(fi < numberOfFeatures);
-                if(features(j, fi) < threshold) {
-                    nodeIndex = decisionNode.childNodeIndex(0);
-                }
-                else {
-                    nodeIndex = decisionNode.childNodeIndex(1);
-                }
-                assert(nodeIndex != 0); // assert that tree is not incomplete
-            }
-        }
-    }
-}
 
 /// Serialization.
 ///
@@ -1566,7 +1536,7 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
         }
         return std::move(farms);
     };
-    
+    clear(); 
     decisionTrees_.resize(numberOfDecisionTrees);
     auto inner_farms = farm_builder();
     std::vector<std::unique_ptr<ff::ff_node>> farm_nodes;
@@ -1598,6 +1568,28 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
     
 }
 
+
+/**
+ * Predicts the label probabilities of samples using this FastFlow network:
+ * 
+ *               |              | W0 |               |
+ *               |              | W1 |               |
+ *               |  Emitter --> | W2 | --> Collector |
+ *               |              | W4 |               |
+ *               |              | W3 |               |
+ *               |                                   |
+ *               |  ........    ......     ......... |
+ * Generator --> |  ........    ......     ......... |                                 |
+ *               |  ........    ......     ......... |
+ *               |  ........    ......     ......... |
+ *               |  ........    ......     ......... |
+ *               |  ........    ......     ......... |
+ *               |  ........    ......     ......... |
+ *               |  ........    ......     ......... |
+ *               |                                   | 
+ *               |                                   |
+ */
+
 /// Predict the label probabilities of samples as described by Breiman (2001).
 ///
 /// \param features A matrix in which every rows corresponds to a sample and every column corresponds to a feature.
@@ -1624,8 +1616,18 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
     PredGenerator generator(decisionTrees_);
     std::vector<std::unique_ptr<PredEmitter>> emitters;
     std::vector<std::unique_ptr<PredCollector>> collectors;
-    
+    const size_t shape[] = {labelProbabilities.shape(0), labelProbabilities.shape(1)};
     std::fill(labelProbabilities.begin(), labelProbabilities.end(), Probability());
+
+    size_t rows = labelProbabilities.shape(0);
+    size_t cols = labelProbabilities.shape(1);
+
+    std::vector<std::shared_ptr<std::atomic<int>>> atomicProbabilities;
+    atomicProbabilities.reserve(rows*cols);
+
+    for (size_t i = 0; i < rows*cols; ++i)
+        atomicProbabilities.emplace_back(std::make_shared<std::atomic<int>>(0));
+
 
 
     auto numWorkers = std::min(static_cast<size_t>(MAX_PWN_NUM_WORKERS), features.shape(0) / CHUNK_SIZE_TO_PREDICT);
@@ -1644,7 +1646,8 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
             emitters.emplace_back(std::make_unique<PredEmitter>(features.shape(0)));
             collectors.emplace_back(std::make_unique<PredCollector>(
                 labels,
-                labelProbabilities
+                atomicProbabilities,
+                cols
             ));
             
             farms.emplace_back(std::make_unique<ff::ff_farm>(false));
@@ -1671,17 +1674,22 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
         generator
     );
     generalFarm.remove_collector();
-    generalFarm.set_scheduling_ondemand();
     generalFarm.blocking_mode();
     if(generalFarm.run_and_wait_end() < 0) {
         throw std::runtime_error("Error during decision forest prediction with FastFlow network.");
     }
 
+    for(size_t i = 0; i < rows; ++i) {
+        for(size_t j = 0; j < cols; ++j) {
+            labelProbabilities(i, j) = atomicProbabilities[i * cols + j]->load(std::memory_order_relaxed);
+        }
+    }
     
     for(ptrdiff_t j = 0; j < static_cast<ptrdiff_t>(labelProbabilities.size()); ++j) {
         labelProbabilities(j) /= decisionTrees_.size();
     }
 }
+
 
 /// Returns a decision tree.
 ///

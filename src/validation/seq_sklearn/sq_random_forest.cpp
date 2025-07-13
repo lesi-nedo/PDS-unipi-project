@@ -6,8 +6,8 @@
 #include <iomanip>
 #include <cmath>
 
-#include "../../include/sequential/marray.h"
-#include "../../include/sequential/dt.h"
+#include "marray.h"
+#include "dt.h"
 #include "utils.h"
 
 

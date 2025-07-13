@@ -1,6 +1,6 @@
 #ifndef MY_RF_UTILS_H
 #define MY_RF_UTILS_H
-#include "../../include/sequential/marray.h"
+
 #include <fstream>
 #include <string_view>
 #include <stdexcept>
@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <random>
 
+#include "marray.h"
 
 template<typename T>
 concept Primitive = std::is_arithmetic_v<T>;
