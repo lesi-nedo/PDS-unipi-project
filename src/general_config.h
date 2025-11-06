@@ -5,6 +5,5 @@
 #define DT_TREE_COUNTS {36, 50, 100, 150, 200}
 #define DT_SAMPLES_PER_TREE_TEST {1000}
 #define DT_SAMPLES_PER_TREE {2000}
-#define CACHE_OPTIMIZATION true 
 
 #endif

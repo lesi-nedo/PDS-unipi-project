@@ -468,40 +468,11 @@ inline std::tuple<double, size_t, FEATURE, size_t> DecisionNode<FEATURE, LABEL>:
             const size_t fi = featureIndicesBuffer[j];
             auto local_sampleIndicesView = std::ranges::subrange(sampleIndicesView.begin(), sampleIndicesView.end());
 
-            // To improve cache performance, create a temporary vector of structs
-            // to hold feature values and indices, sort it, then update sampleIndices.
-            // This makes the sort operation much faster by avoiding strided memory access.
-
-
-            #if CACHE_OPTIMIZATION
-                
-                for(size_t ind = 0; ind < numSamplesInNode; ++ind) {
-                        // Prefetch data for the next few iterations
-                    if (ind + PREFETCH_SAMPLES < numSamplesInNode) {
-                        _mm_prefetch((const char*)&local_sampleIndicesView[ind + PREFETCH_SAMPLES], _MM_HINT_T0);
-                        _mm_prefetch((const char*)&features(local_sampleIndicesView[ind + PREFETCH_SAMPLES], fi), _MM_HINT_T0);
-                    }
-                    local_sortBuffer[ind] = std::move(SortItem<Feature>(features(local_sampleIndicesView[ind], fi), local_sampleIndicesView[ind]));
-                }
-                std::sort(local_sortBuffer.begin(), local_sortBuffer.begin() + numSamplesInNode);
-
-                //Update sampleIndices to reflect the new sorted order.
-
-                
-                for (size_t k = 0; k < numSamplesInNode; ++k) {
-                    if (k + PREFETCH_SAMPLES < numSamplesInNode) 
-                        _mm_prefetch((const char*)&local_sortBuffer[k + PREFETCH_SAMPLES].sampleIndex, _MM_HINT_T0);
-                    local_sampleIndicesView[k] = local_sortBuffer[k].sampleIndex;
-                }
-            #else
-
-                std::sort(
-                    local_sampleIndicesView.begin(),
-                    local_sampleIndicesView.end(),
-                    ComparisonByFeature(features, fi)
-                );
-            #endif
-
+            std::sort(
+                local_sampleIndicesView.begin(),
+                local_sampleIndicesView.end(),
+                ComparisonByFeature(features, fi)
+            );
             #if defined(DEBUG)
                 for(size_t k = 0; k + 1 < numSamplesInNode; ++k) {
                     assert(
@@ -704,30 +675,11 @@ size_t DecisionNode<FEATURE, LABEL>::learn(
     this->featureIndex_ = currentOptimalFeatureIndex;
     this->threshold_ = currentOptimalThreshold;
 
-    #if CACHE_OPTIMIZATION
-
-        const auto numSamplesInNode = sampleIndicesView.size();
-
-        for (size_t k = 0; k < numSamplesInNode; ++k) {
-            if (k + PREFETCH_SAMPLES < numSamplesInNode){
-                _mm_prefetch((const char*)&sampleIndicesView[k + PREFETCH_SAMPLES], _MM_HINT_T0);
-                _mm_prefetch((const char*)&features(sampleIndicesView[k + PREFETCH_SAMPLES], currentOptimalFeatureIndex), _MM_HINT_T0);
-            }
-            sortBuffer[k] = std::move(SortItem<Feature>(features(sampleIndicesView[k], currentOptimalFeatureIndex), sampleIndicesView[k]));
-        }
-        std::sort(std::execution::par, sortBuffer.begin(), sortBuffer.begin() + numSamplesInNode);
-
-        for (size_t k = 0; k < numSamplesInNode; ++k) {
-            sampleIndicesView[k] = sortBuffer[k].sampleIndex;
-        }
-    #else
-        std::sort(
-            sampleIndicesView.begin(),
-            sampleIndicesView.end(),
-            ComparisonByFeature(features, currentOptimalFeatureIndex)
-        );
-    #endif
-
+    std::sort(
+        sampleIndicesView.begin(),
+        sampleIndicesView.end(),
+        ComparisonByFeature(features, currentOptimalFeatureIndex)
+    );
     return currentOptimalThresholdIndex;
 }   
 

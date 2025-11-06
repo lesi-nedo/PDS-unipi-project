@@ -1,0 +1,22 @@
+Sent number of training samples: 2000 to process 1
+Assigned 67 trees to process 1
+Sent number of training samples: 2000 to process 2
+Assigned 67 trees to process 2
+Sent number of training samples: 2000 to process 3
+Assigned 66 trees to process 3
+Process 1 received number of trees to expect: 67
+Process 1 received tree sizes.
+Process 1 received all tree data.
+Process 1 has received 67 trees from master.
+Master received trained trees from process 1
+Process 2 received number of trees to expect: 67
+Process 2 received tree sizes.
+Process 2 received all tree data.
+Process 2 has received 67 trees from master.
+Master received trained trees from process 2
+Process 3 received number of trees to expect: 66
+Process 3 received tree sizes.
+Process 3 received all tree data.
+Process 3 has received 66 trees from master.
+Master received trained trees from process 3
+Master has collected all trained trees. Total trees in forest: 200

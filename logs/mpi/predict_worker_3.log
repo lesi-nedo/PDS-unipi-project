@@ -1,0 +1,52 @@
+Worker 3 predicting with 66 trees.
+Process 0 received number of trees to expect: 12
+Process 0 received tree sizes.
+Process 0 received all tree data.
+Process 0 has received 12 trees from master.
+Worker 3 loaded test data, starting predictions.
+Worker 3 finished predictions.
+Process 0 sent prediction result dimensions: 1000x2
+Process 0 sent prediction results.
+Worker 3 sent prediction results back to master.
+Worker 3 predicting with 12 trees.
+Process 0 received number of trees to expect: 16
+Process 0 received tree sizes.
+Process 0 received all tree data.
+Process 0 has received 16 trees from master.
+Worker 3 loaded test data, starting predictions.
+Worker 3 finished predictions.
+Process 0 sent prediction result dimensions: 1000x2
+Process 0 sent prediction results.
+Worker 3 sent prediction results back to master.
+Worker 3 predicting with 16 trees.
+Process 0 received number of trees to expect: 33
+Process 0 received tree sizes.
+Process 0 received all tree data.
+Process 0 has received 33 trees from master.
+Worker 3 loaded test data, starting predictions.
+Worker 3 finished predictions.
+Process 0 sent prediction result dimensions: 1000x2
+Process 0 sent prediction results.
+Worker 3 sent prediction results back to master.
+Worker 3 predicting with 33 trees.
+Process 0 received number of trees to expect: 50
+Process 0 received tree sizes.
+Process 0 received all tree data.
+Process 0 has received 50 trees from master.
+Worker 3 loaded test data, starting predictions.
+Worker 3 finished predictions.
+Process 0 sent prediction result dimensions: 1000x2
+Process 0 sent prediction results.
+Worker 3 sent prediction results back to master.
+Worker 3 predicting with 50 trees.
+Process 0 received number of trees to expect: 66
+Process 0 received tree sizes.
+Process 0 received all tree data.
+Process 0 has received 66 trees from master.
+Worker 3 loaded test data, starting predictions.
+Worker 3 finished predictions.
+Process 0 sent prediction result dimensions: 1000x2
+Process 0 sent prediction results.
+Worker 3 sent prediction results back to master.
+Worker 3 received end of prediction signal.
+Worker 3 finished in 454.854 milliseconds.

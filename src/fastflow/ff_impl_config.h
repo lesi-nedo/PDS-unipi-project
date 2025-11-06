@@ -15,9 +15,9 @@
 #define USE_PARALLEL_MAP false
 
 // Experiment 2 configuration 
-#define EN_NUM_WORKERS 32
-#define WN_FIRST_NUM_WORKERS 1
-#define WN_SECOND_NUM_WORKERS 6
+#define EN_NUM_WORKERS 12
+#define WN_FIRST_NUM_WORKERS 2
+#define WN_SECOND_NUM_WORKERS 2
 
 
 // Prediction configuration

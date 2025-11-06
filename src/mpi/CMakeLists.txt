@@ -1,16 +1,15 @@
 set(
-    OMP_RF_CONF_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/omp.conf"
+    MPI_RF_CONF_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/mpi.conf"
     CACHE STRING
-    "Path to the OpenMP DecisionForest configuration file"
+    "Path to the MPI DecisionForest configuration file"
 )
 
-
-if(NOT EXISTS "${OMP_RF_CONF_FILE}")
-    message(FATAL_ERROR "Configuration file not found: ${OMP_RF_CONF_FILE}. Please provide a valid configuration file.")
+if(NOT EXISTS "${MPI_RF_CONF_FILE}")
+    message(FATAL_ERROR "Configuration file not found: ${MPI_RF_CONF_FILE}. Please provide a valid configuration file.")
 endif()
 
-file(STRINGS "${OMP_RF_CONF_FILE}" CONF_LINES)
+file(STRINGS "${MPI_RF_CONF_FILE}" CONF_LINES)
 
 foreach(line IN LISTS CONF_LINES)
    
@@ -36,49 +35,44 @@ foreach(line IN LISTS CONF_LINES)
     else()
         message(FATAL_ERROR "Could not parse configuration line: ${line}")
     endif()
-endforeach()
+    
+endforeach(line IN LISTS CONF_LINES)
 
-set(RESULTS_PATH_OMP
-    "${CMAKE_SOURCE_DIR}/results/openmp/"
+set(RESULTS_PATH_MPI
+    "${CMAKE_SOURCE_DIR}/results/mpi/"
     CACHE PATH
-    "Path to store results for OpenMP implementation"
+    "Path to store results for MPI implementation"
 )
 
-if(NOT EXISTS "${RESULTS_PATH_OMP}")
-    file(MAKE_DIRECTORY "${RESULTS_PATH_OMP}")
+if(NOT EXISTS "${RESULTS_PATH_MPI}")
+    file(MAKE_DIRECTORY "${RESULTS_PATH_MPI}")
 endif()
 
 configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/omp_impl_config.h.in"
-    "${CMAKE_CURRENT_SOURCE_DIR}/omp_impl_config.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mpi_impl_config.h.in"
+    "${CMAKE_CURRENT_SOURCE_DIR}/mpi_impl_config.h"
 )
 
+
 add_executable(
-    omp_impl
+    mpi_impl
     "${CMAKE_CURRENT_SOURCE_DIR}/main.cpp"
     "${CMAKE_SOURCE_DIR}/src/utils/utils.cpp"
 )
 
 target_include_directories(
-    omp_impl
+    mpi_impl
     PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/src/utils"
-    "${CMAKE_SOURCE_DIR}/include/"
+    "${CMAKE_SOURCE_DIR}/src/fastflow"
     "${CMAKE_SOURCE_DIR}/src"
+    "${CMAKE_SOURCE_DIR}/external/fastflow"
+    "${CMAKE_SOURCE_DIR}/include"
 )
 
 target_link_libraries(
-    omp_impl
+    mpi_impl
     PRIVATE
-    OpenMP::OpenMP_CXX
+    MPI::MPI_CXX
 )
-
-add_custom_target(
-    run_omp_impl
-    COMMAND $<TARGET_FILE:omp_impl> ${TRAIN_DATA_PATH} ${TEST_DATA_PATH}
-    DEPENDS omp_impl
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
-    COMMENT "Running OpenMP implementation of DecisionForest"
-)
-

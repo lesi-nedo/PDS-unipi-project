@@ -1,0 +1,6 @@
+NumTrees,TrainingTime_ms,MemoryUsage_MB,TrainSamples,TrainingThroughput_samples_per_sec,
+36,2597.15,0,2000,770.076
+50,937.553,3,2000,2133.21
+100,2338.18,8,2000,855.367
+150,2084.29,11,2000,959.56
+200,3134.96,14,2000,637.967

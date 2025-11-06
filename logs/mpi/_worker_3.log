@@ -1,0 +1,37 @@
+Worker 3 will train 12 trees with 2000 samples each.
+Using 12 workers for the forest (nested parallelism disabled, using single-threaded learning per tree).
+Worker 3 finished training 12 trees.
+Sent 12 trees to process 0
+Sent tree sizes: 395540 to process 0
+Sent all tree data to process 0
+Worker 3 sent trained trees back to master.
+Worker 3 will train 16 trees with 2000 samples each.
+Using 16 workers for the forest (nested parallelism disabled, using single-threaded learning per tree).
+Worker 3 finished training 16 trees.
+Sent 16 trees to process 0
+Sent tree sizes: 527184 to process 0
+Sent all tree data to process 0
+Worker 3 sent trained trees back to master.
+Worker 3 will train 33 trees with 2000 samples each.
+Using 32 workers for the forest (nested parallelism disabled, using single-threaded learning per tree).
+Worker 3 finished training 33 trees.
+Sent 33 trees to process 0
+Sent tree sizes: 1085976 to process 0
+Sent all tree data to process 0
+Worker 3 sent trained trees back to master.
+Worker 3 will train 50 trees with 2000 samples each.
+Using 32 workers for the forest (nested parallelism disabled, using single-threaded learning per tree).
+Worker 3 finished training 50 trees.
+Sent 50 trees to process 0
+Sent tree sizes: 1641790 to process 0
+Sent all tree data to process 0
+Worker 3 sent trained trees back to master.
+Worker 3 will train 66 trees with 2000 samples each.
+Using 32 workers for the forest (nested parallelism disabled, using single-threaded learning per tree).
+Worker 3 finished training 66 trees.
+Sent 66 trees to process 0
+Sent tree sizes: 2168453 to process 0
+Sent all tree data to process 0
+Worker 3 sent trained trees back to master.
+Worker 3 will train 0 trees with 99 samples each.
+Worker 3 finished in 11092.4 milliseconds.

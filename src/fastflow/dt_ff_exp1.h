@@ -519,12 +519,12 @@ public:
     const DecisionTreeType& decisionTree(const size_t) const;
     void predict(const andres::View<Feature>&, andres::Marray<Probability>&) const;
     void serialize(std::ostream&) const;
+protected:
+    std::vector<DecisionTreeType> decisionTrees_;
 
 private:
     template<class RandomEngine>
        static void sampleBootstrap(const size_t, std::vector<size_t>&, RandomEngine&);
-
-    std::vector<DecisionTreeType> decisionTrees_;
     
     struct WorkloadEstimator {
         // Estimates the computational complexity of building a single decision tree.
@@ -897,35 +897,12 @@ inline std::tuple<double, size_t, FEATURE, size_t> DecisionNode<FEATURE, LABEL>:
        
         const auto numSamplesInNode = sampleIndicesView.size();
 
-
-        #if CACHE_OPTIMIZATION
-            
-            for(size_t ind = 0; ind < numSamplesInNode; ++ind) {
-                    // Prefetch data for the next few iterations
-                if (ind + PREFETCH_SAMPLES < numSamplesInNode) {
-                    _mm_prefetch((const char*)&sampleIndicesView[ind + PREFETCH_SAMPLES], _MM_HINT_T0);
-                    _mm_prefetch((const char*)&features(sampleIndicesView[ind + PREFETCH_SAMPLES], fi), _MM_HINT_T0);
-                }
-                sortBuffer[ind] = std::move(SortItem<Feature>(features(sampleIndicesView[ind], fi), sampleIndicesView[ind]));
-            }
-            std::sort(sortBuffer.begin(), sortBuffer.begin() + numSamplesInNode);
-
-            //Update sampleIndices to reflect the new sorted order.
-
-            
-            for (size_t k = 0; k < numSamplesInNode; ++k) {
-                if (k + PREFETCH_SAMPLES < numSamplesInNode) 
-                    _mm_prefetch((const char*)&sortBuffer[k + PREFETCH_SAMPLES].sampleIndex, _MM_HINT_T0);
-                sampleIndicesView[k] = sortBuffer[k].sampleIndex;
-            }
-        #else
-
-            std::sort(
-                sampleIndicesView.begin(),
-                sampleIndicesView.end(),
-                ComparisonByFeature(features, fi)
-            );
-        #endif
+        std::sort(
+            sampleIndicesView.begin(),
+            sampleIndicesView.end(),
+            ComparisonByFeature(features, fi)
+        );
+     
 
         #if defined(DEBUG)
             for(size_t k = 0; k + 1 < numSamplesInNode; ++k) {
@@ -1083,9 +1060,7 @@ size_t DecisionNode<FEATURE, LABEL>::learn(
     std::vector<size_t> featureIndicesBuffer(numberOfFeaturesToBeAssessed);
     std::vector<SortItem<Feature>> sortBuffer(features.shape(0));
     std::vector<size_t> randomSampleBuffer;
-    auto randomEngine = 
-        (randomSeed == 0) ? std::mt19937(std::random_device{}()) 
-                          : std::mt19937(randomSeed+sampleIndexBegin + 1);
+    auto randomEngine = std::mt19937(randomSeed+sampleIndexBegin + 1);
     sampleSubsetWithoutReplacement(
         numberOfFeatures, 
         numberOfFeaturesToBeAssessed,
@@ -1132,29 +1107,11 @@ size_t DecisionNode<FEATURE, LABEL>::learn(
     this->featureIndex_ = currentOptimalFeatureIndex;
     this->threshold_ = currentOptimalThreshold;
 
-    #if CACHE_OPTIMIZATION
-
-        const auto numSamplesInNode = sampleIndicesView.size();
-
-        for (size_t k = 0; k < numSamplesInNode; ++k) {
-            if (k + PREFETCH_SAMPLES < numSamplesInNode){
-                _mm_prefetch((const char*)&sampleIndicesView[k + PREFETCH_SAMPLES], _MM_HINT_T0);
-                _mm_prefetch((const char*)&features(sampleIndicesView[k + PREFETCH_SAMPLES], currentOptimalFeatureIndex), _MM_HINT_T0);
-            }
-            sortBuffer[k] = std::move(SortItem<Feature>(features(sampleIndicesView[k], currentOptimalFeatureIndex), sampleIndicesView[k]));
-        }
-        std::sort(std::execution::par, sortBuffer.begin(), sortBuffer.begin() + numSamplesInNode);
-
-        for (size_t k = 0; k < numSamplesInNode; ++k) {
-            sampleIndicesView[k] = sortBuffer[k].sampleIndex;
-        }
-    #else
-        std::sort(
-            sampleIndicesView.begin(),
-            sampleIndicesView.end(),
-            ComparisonByFeature(features, currentOptimalFeatureIndex)
-        );
-    #endif
+    std::sort(
+        sampleIndicesView.begin(),
+        sampleIndicesView.end(),
+        ComparisonByFeature(features, currentOptimalFeatureIndex)
+    );
 
     return currentOptimalThresholdIndex;
 }   
@@ -1260,7 +1217,7 @@ DecisionTree<FEATURE, LABEL>::learn(
     const andres::View<Feature>& features,
     const andres::View<Label>& labels,
     std::vector<size_t>& sampleIndices, // input, will be sorted
-    const int randomSeed
+    int randomSeed
 ) {
     assert(decisionNodes_.size() == 0);
    
@@ -1372,6 +1329,26 @@ DecisionTree<FEATURE, LABEL>::learn(
         }
     }
 }
+
+
+/**
+ * Learns the decision tree using FastFlow Farm for parallel node processing.
+ * From experiments, it seems that parallelizing beyond this network does not help much.
+ * To note: the most critical part (computation of the Gini coefficients for the best split), see helperParallelMap, is parallelized using ParallelFor, which i suspect recreates the threads at each call.
+ * The final version is using the helperSequential function, which is faster in practice. 
+ * The fastflow Network is the following:
+ *              |               |
+ *              |   workers     |
+ *              |               |
+ * sourceSink ->|   workers     | -> sourceSink (same as input to wrap around)
+ *              |               | 
+ *              |   workers     |
+ *              |               |
+ *              |   workers     |
+ *              |               |
+ *              |    ....       |
+ *              |               |
+ */             
 
 /// Learns a decision tree using FastFlow Farm for parallel node processing.
 ///
@@ -1590,14 +1567,15 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::learn(
         [&](ptrdiff_t treeIndex) {
             std::vector<size_t> sampleIndices(numberOfSamples);
             
-            int tree_specific_seed = (randomSeed == 0) ? 0 : (randomSeed + static_cast<int>(treeIndex));
             std::mt19937 randomEngine;
-            if (tree_specific_seed == 0) {
-                std::seed_seq seq{(unsigned int)std::random_device{}(), (unsigned int)treeIndex};
-                randomEngine.seed(seq);
+            auto tree_specific_seed = randomSeed + treeIndex;
+            if(randomSeed == 0){
+                std::seed_seq seedSeq{static_cast<unsigned int>(std::random_device{}()), static_cast<unsigned int>(treeIndex)};
+                randomEngine.seed(seedSeq);
             } else {
                 randomEngine.seed(tree_specific_seed);
             }
+            
             
             sampleBootstrap(numberOfSamples, sampleIndices, randomEngine);
             // Choose learning strategy based on nested parallelism decision

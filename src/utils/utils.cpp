@@ -1,16 +1,4 @@
 #include "utils.h"
-#include "marray.h"
-
-
-#include <unordered_set>
-
-size_t countUniqueLabels(const andres::Marray<int>& labels) {
-    std::unordered_set<int> uniqueLabels;
-    for (size_t i = 0; i < labels.shape(0); ++i) {
-        uniqueLabels.insert(labels(i));
-    }
-    return uniqueLabels.size();
-}
 
 
 

@@ -14,7 +14,7 @@ int main(int argc, char* argv[]) {
     #ifdef _OPENMP
         std::cout << "OpenMP is enabled." << std::endl;
     #else
-        std::error << "OpenMP is not enabled." << std::endl;
+        std::cerr << "OpenMP is not enabled." << std::endl;
         return 1;
     #endif
     if(argc < 3 || argc > 4) {

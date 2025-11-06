@@ -1,0 +1,24 @@
+Sent number of test samples: 1000 to process 1
+Sent number of test samples: 1000 to process 2
+Sent number of test samples: 1000 to process 3
+Sent 67 trees to process 1
+Sent tree sizes: 2203087 to process 1
+Sent all tree data to process 1
+Sent 67 trees to process 1 for prediction.
+Sent 67 trees to process 2
+Sent tree sizes: 2202054 to process 2
+Sent all tree data to process 2
+Sent 67 trees to process 2 for prediction.
+Sent 66 trees to process 3
+Sent tree sizes: 2168453 to process 3
+Sent all tree data to process 3
+Sent 66 trees to process 3 for prediction.
+Process 1 received prediction result dimensions: 1000x2
+Master received prediction results from process 1
+Master received prediction results from process 1
+Process 2 received prediction result dimensions: 1000x2
+Master received prediction results from process 2
+Master received prediction results from process 2
+Process 3 received prediction result dimensions: 1000x2
+Master received prediction results from process 3
+Master received prediction results from process 3

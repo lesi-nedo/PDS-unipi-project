@@ -79,7 +79,6 @@
 #define ROOT_NODE 2
 
 #define SKIP_RA2A_WORKERS true
-#define NEW_TREE true
 #define ORDER_INDICES true
 
 /// The public API.
@@ -290,7 +289,7 @@ public:
                 return this->GO_ON;
             } else {
                 auto& [prevTask, numberOfClassesInSubset, fi] = std::get<VLA2A_out_t>(*task);
-                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *prevTask;
+                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd, prevRandomSeed] = *prevTask;
                 auto bs = std::make_unique<BestSplit>();
                 auto subSampleIndices = std::ranges::subrange(
                     matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
@@ -316,7 +315,7 @@ public:
 
                 std::sort(sortBuffer_.begin(), sortBuffer_.begin() + numSamplesInNode);
 
-                
+                         
                 numberOfLabelsForSplit[0].assign(numberOfClassesInSubset, 0);
                 numberOfLabelsForSplit[1].assign(numberOfClassesInSubset, 0);
 
@@ -423,20 +422,18 @@ public:
             const andres::View<Feature>& features,
             const andres::View<Label>& labels,
             const size_t numberOfFeaturesToBeAssessed,
-            const std::vector<std::vector<size_t>>& matrixSampleIndices,
-            const int& randomSeed
+            const std::vector<std::vector<size_t>>& matrixSampleIndices
         ): 
             features_(features),
             labels_(labels),
             numberOfFeaturesToBeAssessed_(numberOfFeaturesToBeAssessed),
             matrixSampleIndices_(matrixSampleIndices),
-            randomSeed_(randomSeed),
             featureIndicesBuffer_( numberOfFeaturesToBeAssessed_),
             randomSamplerBuffer_(features.shape(1))
         {}
 
         LA2AN_out_t* svc(LA2AN_in_t* task) {
-            auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *task;
+            auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd, randomSeed] = *task;
             auto subSampleIndices = std::ranges::subrange(
                 matrixSampleIndices_[treeIndex].begin() + sampleIndexBegin,
                 matrixSampleIndices_[treeIndex].begin() + sampleIndexEnd
@@ -467,7 +464,7 @@ public:
                 
                 FCN_out_t fdn_out_task = std::make_pair(
                     std::make_tuple(
-                        !NEW_TREE, treeIndex,
+                        treeIndex,
                         std::move(newNode), nodeType, parentIndex, childIndex, 
                         sampleIndexBegin, sampleIndexEnd, 0
                     ), 
@@ -476,7 +473,7 @@ public:
                 
                 this->ff_send_out(
                     new LA2AN_out_t(
-                        std::move(fdn_out_task) // Move the FCN_out_t into the variant
+                        std::move(fdn_out_task) 
                     )
                 );
                 delete task;
@@ -492,8 +489,8 @@ public:
             const auto numberOfClassesInSubset = static_cast<size_t>(maxLabel) + 1;
 
             
-            
-            auto randomEngie = std::mt19937((randomSeed_ == 0) ? 0 : (randomSeed_ + sampleIndexBegin + treeIndex + 1));
+            auto uniqueRandomSeed = randomSeed + treeIndex * 104729 + nodeType * 8191 + parentIndex * 1031 + childIndex * 127; 
+            auto randomEngie = std::mt19937(uniqueRandomSeed);
 
             sampleSubsetWithoutReplacement(
                 features_.shape(1), numberOfFeaturesToBeAssessed_,
@@ -517,7 +514,6 @@ public:
         const andres::View<Feature>& features_;
         const andres::View<Label>& labels_;
         const size_t numberOfFeaturesToBeAssessed_;
-        const int randomSeed_;
         std::vector<size_t> featureIndicesBuffer_;
         std::vector<size_t> randomSamplerBuffer_;
         const std::vector<std::vector<size_t>>& matrixSampleIndices_;
@@ -588,10 +584,12 @@ public:
     typedef PROBABILITY Probability;
     typedef DecisionTree<Feature, Label> DecisionTreeType;
 
-    using FEN_in_t = std::pair<std::tuple<decltype(NEW_TREE), size_t, std::unique_ptr<typename DecisionTreeType::DecisionNodeType>, int, size_t, size_t, size_t, size_t, size_t>, decltype(ORDER_INDICES)>;
-    using FEN_out_t = std::tuple<size_t, int, size_t, size_t, size_t, size_t>;
-    
+    using FEN_in_t = std::pair<std::tuple<size_t, std::unique_ptr<typename DecisionTreeType::DecisionNodeType>, int, size_t, size_t, size_t, size_t, size_t>, decltype(ORDER_INDICES)>;
+    using FEN_out_t = std::tuple<size_t, int, size_t, size_t, size_t, size_t, int>;
+    using FTG_out_t = long;
     typedef FEN_in_t FCN_out_t;
+    using FTE_in_t = std::variant<FCN_out_t, FTG_out_t>;
+    typedef FTE_in_t FTC_out_t;
     typedef DecisionTreeType::DecisionNodeType::RA2AN_out_t FCN_in_t;
 
     DecisionForest();
@@ -636,7 +634,7 @@ private:
         std::pair<size_t, std::unique_ptr<typename DecisionTreeType::DecisionNodeType::BestSplit>>,
         TupleHasher
     >;
-    struct TrainEmitter: ff::ff_monode_t<FEN_in_t, FEN_out_t> {
+    struct TrainEmitter: ff::ff_monode_t<FTE_in_t, FEN_out_t> {
         
         TrainEmitter(
             const andres::View<Feature>& features,
@@ -657,7 +655,7 @@ private:
         }
 
 
-        void init_tree(size_t treeIndex){
+        void init_tree_and_send(size_t treeIndex){
 #if defined(DEBUG)
                 assert(treeIndex < decisionTrees_.size());
                 assert(decisionTrees_[treeIndex].isEmpty());
@@ -674,6 +672,7 @@ private:
             } else {
                 randomEngine_.seed(randomSeed_ + treeIndex);
             }
+            randomSeeds_[treeIndex] = randomSeed_;
             sampleBootstrap(
                 features_.shape(0), 
                 matrixSampleIndices_[treeIndex], 
@@ -682,7 +681,7 @@ private:
 
             this->ff_send_out(
                 new FEN_out_t(
-                    treeIndex, ROOT_NODE, 0, 0, 0, matrixSampleIndices_[treeIndex].size()
+                    treeIndex, ROOT_NODE, 0, 0, 0, matrixSampleIndices_[treeIndex].size(), randomSeeds_[treeIndex]++
                 )
             );
             
@@ -690,36 +689,38 @@ private:
 
         }
         
-        FEN_out_t* svc(FEN_in_t* task){
+        FEN_out_t* svc(FTE_in_t* task){
             
-                
-            auto& [new_tree,treeIndex, newNode, nodeType, nodeIndexParent, nodeIndexChild, sampleIndexBegin, sampleIndexEnd, thresholdIndex] = task->first;
-            auto orderSampleIndices = task->second;
-
-            if(orderSampleIndices){
-                sortItems_.resize(sampleIndexEnd - sampleIndexBegin);
-                for(size_t ind = 0; ind < sortItems_.size(); ++ind) {
-                    // Prefetch data for the next few iterations
-                    if (ind + PREFETCH_SAMPLES < sortItems_.size()) {
-                        _mm_prefetch((const char*)&matrixSampleIndices_[treeIndex][ind+sampleIndexBegin+PREFETCH_SAMPLES], _MM_HINT_T0);
-                        _mm_prefetch((const char*)&features_(matrixSampleIndices_[treeIndex][ind+sampleIndexBegin+PREFETCH_SAMPLES], newNode->featureIndex()), _MM_HINT_T0);
-                    }
-                    sortItems_[ind] = std::move(SortItem<Feature>{
-                        features_(matrixSampleIndices_[treeIndex][ind+sampleIndexBegin], newNode->featureIndex()),
-                        matrixSampleIndices_[treeIndex][ind+sampleIndexBegin]
-                    });
-                    
-                }
-                std::sort(sortItems_.begin(), sortItems_.end());
-                for(size_t ind = 0; ind < sortItems_.size(); ++ind)
-                    matrixSampleIndices_[treeIndex][ind+sampleIndexBegin] = sortItems_[ind].sampleIndex;
-
-
-            }
-           
-            if(new_tree){
-                init_tree(treeIndex);
+            if (std::holds_alternative<FTG_out_t>(*task)){
+                auto treeIndex = std::get<FTG_out_t>(*task);
+                init_tree_and_send(treeIndex);
+               
             } else {
+                 auto& fcn = std::get<FCN_out_t>(*task);
+                auto& [treeIndex, newNode, nodeType, nodeIndexParent, nodeIndexChild, sampleIndexBegin, sampleIndexEnd, thresholdIndex] = fcn.first;
+                auto orderSampleIndices = fcn.second;
+
+                if(orderSampleIndices){
+                    sortItems_.resize(sampleIndexEnd - sampleIndexBegin);
+                    for(size_t ind = 0; ind < sortItems_.size(); ++ind) {
+                        // Prefetch data for the next few iterations
+                        if (ind + PREFETCH_SAMPLES < sortItems_.size()) {
+                            _mm_prefetch((const char*)&matrixSampleIndices_[treeIndex][ind+sampleIndexBegin+PREFETCH_SAMPLES], _MM_HINT_T0);
+                            _mm_prefetch((const char*)&features_(matrixSampleIndices_[treeIndex][ind+sampleIndexBegin+PREFETCH_SAMPLES], newNode->featureIndex()), _MM_HINT_T0);
+                        }
+                        sortItems_[ind] = std::move(SortItem<Feature>{
+                            features_(matrixSampleIndices_[treeIndex][ind+sampleIndexBegin], newNode->featureIndex()),
+                            matrixSampleIndices_[treeIndex][ind+sampleIndexBegin]
+                        });
+                        
+                    }
+                    std::sort(sortItems_.begin(), sortItems_.end());
+                    for(size_t ind = 0; ind < sortItems_.size(); ++ind)
+                        matrixSampleIndices_[treeIndex][ind+sampleIndexBegin] = sortItems_[ind].sampleIndex;
+
+
+                }
+        
                 if(nodeType == ROOT_NODE) {
                     
                     decisionTrees_[treeIndex][0].featureIndex() = newNode->featureIndex();
@@ -730,11 +731,7 @@ private:
                 } else {
                     // Process the task for an existing tree.
                     decisionTrees_[treeIndex][nodeIndexChild] = std::move(*newNode);
-                    if(nodeType == LEFT_NODE) {
-                        decisionTrees_[treeIndex][nodeIndexParent].childNodeIndex(LEFT_NODE) = nodeIndexChild;
-                    } else if(nodeType == RIGHT_NODE) {
-                        decisionTrees_[treeIndex][nodeIndexParent].childNodeIndex(RIGHT_NODE) = nodeIndexChild;
-                    }
+                    decisionTrees_[treeIndex][nodeIndexParent].childNodeIndex(nodeType) = nodeIndexChild;
                 }
                 
                 if(!decisionTrees_[treeIndex][nodeIndexChild].isLeaf()) {
@@ -743,37 +740,35 @@ private:
 #endif
                     queues_[treeIndex].emplace(nodeIndexChild, sampleIndexBegin, sampleIndexEnd, thresholdIndex);
                 }
-            }
+                if(!queues_[treeIndex].empty()) {
+                    auto entry = queues_[treeIndex].front();
+                    queues_[treeIndex].pop();
+                    auto nodeIndexNewLeft = decisionTrees_[treeIndex].sizeTrees();
+                    decisionTrees_[treeIndex].addEmptyNode();
 
-            
-            if(!queues_[treeIndex].empty()) {
-                auto entry = queues_[treeIndex].front();
-                queues_[treeIndex].pop();
-                auto nodeIndexNewLeft = decisionTrees_[treeIndex].sizeTrees();
-                decisionTrees_[treeIndex].addEmptyNode();
+                    auto nodeIndexNewRight = decisionTrees_[treeIndex].sizeTrees();
+                    decisionTrees_[treeIndex].addEmptyNode();
 
-                auto nodeIndexNewRight = decisionTrees_[treeIndex].sizeTrees();
-                decisionTrees_[treeIndex].addEmptyNode();
-
-#if defined(DEBUG)
-                assert(entry.sampleIndexBegin_ < entry.sampleIndexEnd_);
-                assert(entry.thresholdIndex_ > entry.sampleIndexBegin_);
-                assert(entry.thresholdIndex_ < entry.sampleIndexEnd_);
-#endif            
-                this->ff_send_out(
-                    new FEN_out_t(
-                        treeIndex, LEFT_NODE, entry.nodeIndex_, nodeIndexNewLeft, entry.sampleIndexBegin_, 
-                        entry.thresholdIndex_
-                ));
-
-                this->ff_send_out(
-                    new FEN_out_t(
-                        treeIndex, RIGHT_NODE, entry.nodeIndex_, nodeIndexNewRight, entry.thresholdIndex_, 
-                        entry.sampleIndexEnd_
+    #if defined(DEBUG)
+                    assert(entry.sampleIndexBegin_ < entry.sampleIndexEnd_);
+                    assert(entry.thresholdIndex_ > entry.sampleIndexBegin_);
+                    assert(entry.thresholdIndex_ < entry.sampleIndexEnd_);
+    #endif            
+                    this->ff_send_out(
+                        new FEN_out_t(
+                            treeIndex, LEFT_NODE, entry.nodeIndex_, nodeIndexNewLeft, entry.sampleIndexBegin_, 
+                            entry.thresholdIndex_, randomSeeds_[treeIndex]++
                     ));
-                tasksInFlight_ += 2;
-            }
 
+                    this->ff_send_out(
+                        new FEN_out_t(
+                            treeIndex, RIGHT_NODE, entry.nodeIndex_, nodeIndexNewRight, entry.thresholdIndex_, 
+                            entry.sampleIndexEnd_, randomSeeds_[treeIndex]++
+                        ));
+                    tasksInFlight_ += 2;
+                    
+                }
+            }
             
             delete task;
             if(this->get_channel_id() == 0){
@@ -801,6 +796,7 @@ private:
         const andres::View<Feature>& features_;
         const andres::View<Label>& labels_;
         std::vector<DecisionTreeType>& decisionTrees_;
+        std::unordered_map<size_t, int> randomSeeds_;
         const int randomSeed_;
 
         std::vector<std::vector<size_t>> matrixSampleIndices_;
@@ -811,7 +807,7 @@ private:
         bool eosreceived_ = false; // Flag to indicate if EOS has been received.
     };
 
-    struct TrainCollector: ff::ff_monode_t<FCN_in_t, FCN_out_t> {
+    struct TrainCollector: ff::ff_monode_t<FCN_in_t, FTC_out_t> {
         TrainCollector(
             const andres::View<Feature>& features,
             const andres::View<Label>& labels,
@@ -824,13 +820,13 @@ private:
             matrixSampleIndices_(matrixSampleIndices)
         {}
 
-        FCN_out_t* svc(FCN_in_t* task) {
+        FTC_out_t* svc(FCN_in_t* task) {
             if(std::holds_alternative<FCN_out_t>(*task)) {
                 this->ff_send_out(task);
                 return this->GO_ON;
             } else {
                 auto& [prevTask, numberOfClassesInSubset, splitObj] = std::get<typename DecisionTreeType::DecisionNodeType::VRA2A_out_t>(*task);
-                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd] = *prevTask;
+                auto& [treeIndex, nodeType, parentIndex, childIndex, sampleIndexBegin, sampleIndexEnd, prevRandomSeed] = *prevTask;
                 auto key = std::make_tuple(
                     treeIndex, nodeType, parentIndex, childIndex
                 );
@@ -867,13 +863,13 @@ private:
 
                             auto result = std::make_pair(
                                 std::make_tuple(
-                                    !NEW_TREE, treeIndex,
+                                    treeIndex,
                                     std::move(newNode), nodeType, parentIndex, childIndex,
                                     sampleIndexBegin, sampleIndexEnd, 0
                                 ), 
                                 !ORDER_INDICES
                             );
-                            this->ff_send_out(new FCN_out_t(std::move(result)));
+                            this->ff_send_out(new FTC_out_t(std::move(result)));
                         } else {
                         
                             auto bestSplit = std::move(it->second.second);
@@ -882,9 +878,9 @@ private:
                             newNode->featureIndex() = bestSplit->featureIndex;
                             newNode->threshold() = bestSplit->threshold;
 
-                            FCN_out_t fdn_out_task = std::make_pair(
+                            FTC_out_t fdn_out_task = std::make_pair(
                                 std::make_tuple(
-                                    !NEW_TREE, treeIndex,
+                                    treeIndex,
                                     std::move(newNode), nodeType, parentIndex, childIndex,
                                     sampleIndexBegin, sampleIndexEnd, bestSplit->relativeThresholdIndex+sampleIndexBegin
                                 ), 
@@ -892,7 +888,7 @@ private:
                             );
 
                             this->ff_send_out(
-                                new FCN_out_t(std::move(fdn_out_task))
+                                new FTC_out_t(std::move(fdn_out_task))
                             );
                             
                         }
@@ -926,21 +922,14 @@ private:
         std::vector<size_t> labelCounts_;
     };
 
-    struct TrainGenerator: ff::ff_monode_t<FEN_in_t> {
+    struct TrainGenerator: ff::ff_monode_t<FTE_in_t> {
         TrainGenerator(const long numTrees): 
             numTrees_(numTrees),
             currentTreeIndex_(0)
         {}
-        FEN_in_t* svc(FEN_in_t*) {
+        FTE_in_t* svc(FTE_in_t*) {
             if(currentTreeIndex_ < numTrees_) {
-                auto task = new FEN_in_t(
-                    std::make_tuple(
-                        NEW_TREE, currentTreeIndex_,
-                        std::make_unique<typename DecisionTreeType::DecisionNodeType>(),
-                        LEFT_NODE, 0, 0, 0, 0, 0
-                    ),
-                    !ORDER_INDICES
-                );
+                auto task = new FTE_in_t(currentTreeIndex_);
                 this->ff_send_out(task);
                 ++currentTreeIndex_;
                 return this->GO_ON; // Continue processing.
@@ -1504,7 +1493,7 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
             for(size_t i = 0; i < WN_FIRST_NUM_WORKERS; ++i) 
                 workersLA2A_sets.back().push_back(
                     new WorkerLA2A_t(
-                        features, labels, numberOfFeaturesToBeAssessed,  emitters.back()->matrixSampleIndices_, randomSeed
+                        features, labels, numberOfFeaturesToBeAssessed,  emitters.back()->matrixSampleIndices_
                     )
                 );
 
@@ -1544,7 +1533,7 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
         farm_nodes.push_back(std::move(farm));
     }
 
-    ff::ff_Farm<FEN_in_t> generalFarm(
+    ff::ff_Farm<FTG_out_t> generalFarm(
         std::move(farm_nodes),
         generator
     );  
