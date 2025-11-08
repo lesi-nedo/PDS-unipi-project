@@ -1,44 +1,4 @@
 Worker 1 predicting with 67 trees.
-Process 0 received number of trees to expect: 12
-Process 0 received tree sizes.
-Process 0 received all tree data.
-Process 0 has received 12 trees from master.
-Worker 1 loaded test data, starting predictions.
-Worker 1 finished predictions.
-Process 0 sent prediction result dimensions: 1000x2
-Process 0 sent prediction results.
-Worker 1 sent prediction results back to master.
-Worker 1 predicting with 12 trees.
-Process 0 received number of trees to expect: 17
-Process 0 received tree sizes.
-Process 0 received all tree data.
-Process 0 has received 17 trees from master.
-Worker 1 loaded test data, starting predictions.
-Worker 1 finished predictions.
-Process 0 sent prediction result dimensions: 1000x2
-Process 0 sent prediction results.
-Worker 1 sent prediction results back to master.
-Worker 1 predicting with 17 trees.
-Process 0 received number of trees to expect: 34
-Process 0 received tree sizes.
-Process 0 received all tree data.
-Process 0 has received 34 trees from master.
-Worker 1 loaded test data, starting predictions.
-Worker 1 finished predictions.
-Process 0 sent prediction result dimensions: 1000x2
-Process 0 sent prediction results.
-Worker 1 sent prediction results back to master.
-Worker 1 predicting with 34 trees.
-Process 0 received number of trees to expect: 50
-Process 0 received tree sizes.
-Process 0 received all tree data.
-Process 0 has received 50 trees from master.
-Worker 1 loaded test data, starting predictions.
-Worker 1 finished predictions.
-Process 0 sent prediction result dimensions: 1000x2
-Process 0 sent prediction results.
-Worker 1 sent prediction results back to master.
-Worker 1 predicting with 50 trees.
 Process 0 received number of trees to expect: 67
 Process 0 received tree sizes.
 Process 0 received all tree data.
@@ -49,4 +9,4 @@ Process 0 sent prediction result dimensions: 1000x2
 Process 0 sent prediction results.
 Worker 1 sent prediction results back to master.
 Worker 1 received end of prediction signal.
-Worker 1 finished in 454.859 milliseconds.
+Worker 1 finished in 168.956 milliseconds.

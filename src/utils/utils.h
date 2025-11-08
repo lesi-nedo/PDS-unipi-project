@@ -21,6 +21,7 @@
 #include <unordered_set>
 
 #include "marray.h"
+#include "general_config.h"
 
 template<typename T>
 concept Primitive = std::is_arithmetic_v<T>;
@@ -413,14 +414,14 @@ inline void saveTrainingDataHeader(
 
 inline void addTrainRowToLog(
     std::ofstream &performance_log,
-    std::tuple<size_t, double, double, size_t, double> training_data
+    const std::tuple<size_t, double, double, size_t, double> &training_data
 ){
     
     performance_log << std::get<0>(training_data) << ","
                     << std::get<1>(training_data) << ","
                     << std::get<2>(training_data) << ","
                     << std::get<3>(training_data) << ","
-                    << std::get<4>(training_data) << "\n";
+                    << std::get<4>(training_data) << ",";
 }
 
 inline void savePredictionDataHeader(
@@ -445,53 +446,6 @@ inline void addPredictionRowToLog(
                     << std::get<7>(prediction_data) << "\n";
 }
 
-template<
-    typename Feature,
-    typename Label,
-    typename Probability,
-    DecisionForestConceptMPI<Feature, Label, Probability> ForestType
->
-void run_training_mpi(
-    const std::vector<size_t>& tree_counts,
-    const std::vector<size_t>& samples_per_tree,
-    const std::string& results_file,
-    int world_size,
-    const int randomSeed,
-    std::vector<ForestType>& forest_trained
-) {
-    std::filesystem::path path(results_file);
-    if (path.has_parent_path() && !std::filesystem::exists(path.parent_path())){
-        std::filesystem::create_directories(path.parent_path());
-    }
-    std::ofstream performance_log(results_file);
-    std::cout << "\nStarting performance evaluation loop..." << std::endl;
-    saveTrainingDataHeader(performance_log);
-
-    for(size_t ind {0}; ind < samples_per_tree.size(); ++ind) {
-        const auto samples = samples_per_tree[ind];
-        
-        for (const auto& numberOfTrees : tree_counts){
-            std::cout << "\n--- Number of Trees: " << numberOfTrees << " and  " << "Train Samples: " << samples << " ---" << std::endl;
-            auto memory_before = getMemoryUsageMB();
-            ;
-            auto start_train = std::chrono::high_resolution_clock::now();
-            forest_trained.emplace_back().learnMaster(samples, numberOfTrees, world_size, randomSeed);
-            auto end_train = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double, std::milli> train_duration = end_train - start_train;
-            std::cout << "Learned " << forest_trained.size() << " decision trees in " << train_duration.count() << " ms." << std::endl;
-            auto memory_after = getMemoryUsageMB();
-            double memory_usage = static_cast<double>(memory_after - memory_before);
-            double trainingThroughput = samples / (train_duration.count() / 1000.0);
-            auto training_data = std::make_tuple(numberOfTrees, train_duration.count(), memory_usage, samples, trainingThroughput);
-            addTrainRowToLog(performance_log, training_data);
-
-        }
-    }
-
-    performance_log.flush();
-    performance_log.close();
-    std::cout << "\nPerformance evaluation finished. Results saved to " << results_file << std::endl;
-}
 
 template<
     typename Feature,
@@ -524,40 +478,6 @@ void run_prediction(
     std::cout << "Accuracy: " << accuracy * 100.0 << "%" << std::endl << std::endl;
 
     auto prediction_data = std::make_tuple(predict_duration.count(), features_test.shape(0), features_test.shape(1), predictionThroughput,  accuracy, f1, precision, recall);
-    addPredictionRowToLog(performance_log, prediction_data);
-}
-
-template<
-    typename Feature,
-    typename Label,
-    typename Probability,
-    DecisionForestConceptMPI<Feature, Label, Probability> ForestType
->
-void run_prediction_mpi(
-    const andres::Marray<Label> &labels_test,
-    ForestType& forest_trained,
-    andres::Marray<Probability> &probabilities,
-    std::ofstream &performance_log,
-    const size_t num_test_samples,
-    int world_size
-) {
-    if(forest_trained.size() == 0) {
-        throw std::runtime_error("No trained forests provided for prediction.");
-    }
-    std::cout << "\n--- Starting MPI prediction on test dataset with " << num_test_samples << " samples ---" << std::endl;
-    std::cout << "Number of trees: " << forest_trained.size() << std::endl;
-    
-    auto start_predict = std::chrono::high_resolution_clock::now();
-    forest_trained.predictMaster(num_test_samples, world_size, probabilities);
-    auto end_predict = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> predict_duration = end_predict - start_predict;
-    double predictionThroughput = num_test_samples / (predict_duration.count() / 1000.0);
-    std::cout << "Prediction finished in " << predict_duration.count() << " ms." << std::endl;
-    auto predicted_classes = probabilitiesToPredictions(probabilities);
-    double accuracy = calculateAccuracy(predicted_classes, labels_test);
-    auto [precision, recall, f1] = calculatePrecisionRecallF1(predicted_classes, labels_test);
-    std::cout << "Accuracy: " << accuracy * 100.0 << "%" << std::endl << std::endl;
-    auto prediction_data = std::make_tuple(predict_duration.count(), num_test_samples, probabilities.shape(1), predictionThroughput,  accuracy, f1, precision, recall);
     addPredictionRowToLog(performance_log, prediction_data);
 }
 
@@ -608,7 +528,7 @@ void run_test_impl(
             double trainingThroughput = features_train.shape(0) / (train_duration.count() / 1000.0);
 
             // Prepare for prediction
-            const size_t shape[] = {features_test.shape(0), countUniqueLabels<int>(labels_test)};
+            const size_t shape[] = {features_test.shape(0), NUM_UNIQUE_LABELS};
             andres::Marray<double> probabilities(shape, shape+2);
 
             // Time the prediction phase

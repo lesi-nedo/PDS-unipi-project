@@ -43,7 +43,7 @@ int main(int argc, char* argv[]) {
     std::cout << "Learned " << forest.size() << " decision trees." << std::endl;
     
     // Predict using the learned forest
-    const size_t shape[] = {features_test.shape(0), countUniqueLabels(labels_test)};
+    const size_t shape[] = {features_test.shape(0), NUM_UNIQUE_LABELS};
     std::cout << "Number of unique labels: " << shape[1] << std::endl;
 
 

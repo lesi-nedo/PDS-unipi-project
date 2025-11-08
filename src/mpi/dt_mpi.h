@@ -335,7 +335,7 @@ namespace mpi_ml {
                     Base::clear();
                     receiveTrainedTrees(0);
                     const auto [features, labels] = loadCSVToMarray<Feature>(test_dataset_path, ',', static_cast<size_t>(num_test_samples_ull), andres::LastMajorOrder);
-                    const size_t shapes[] = {features.shape(0), countUniqueLabels(labels)};
+                    const size_t shapes[] = {features.shape(0), NUM_UNIQUE_LABELS};
                     andres::Marray<Probability> labelProbabilities(shapes, shapes + 2);
                     std::cout << "Worker " << world_rank << " loaded test data, starting predictions." << std::endl;
                     Base::predict(features, labelProbabilities);

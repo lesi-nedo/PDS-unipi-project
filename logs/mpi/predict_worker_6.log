@@ -1,0 +1,12 @@
+Worker 6 predicting with 28 trees.
+Process 0 received number of trees to expect: 28
+Process 0 received tree sizes.
+Process 0 received all tree data.
+Process 0 has received 28 trees from master.
+Worker 6 loaded test data, starting predictions.
+Worker 6 finished predictions.
+Process 0 sent prediction result dimensions: 1000x2
+Process 0 sent prediction results.
+Worker 6 sent prediction results back to master.
+Worker 6 received end of prediction signal.
+Worker 6 finished in 168.568 milliseconds.

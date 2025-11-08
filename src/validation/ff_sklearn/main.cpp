@@ -6,7 +6,6 @@
 #include "utils.h"
 #include "dt_ff_exp2.h"
 #include "dt_ff_exp1.h"
-#include "general_config.h"
 
 
 int main(int argc, char* argv[]) {
@@ -65,7 +64,7 @@ int main(int argc, char* argv[]) {
         auto [features_test, labels_test] = loadCSVToMarray<double>(test_dataset, ',', samples_perTree_test[idx], andres::LastMajorOrder);
 
         for(auto& tree_counts_i : tree_counts) {
-            const size_t shape[] = {features_test.shape(0), countUniqueLabels(labels_test)};
+            const size_t shape[] = {features_test.shape(0), NUM_UNIQUE_LABELS};
             andres::Marray<double> predictions(shape, shape+2);
 
             if (implementation_choice == "ff_exp1") {
@@ -86,7 +85,7 @@ int main(int argc, char* argv[]) {
                 std::cout << "Training with " << tree_counts_i << " trees and " << samples_perTree_i << " samples per tree." << std::endl;
                 rf_exp2.learnWithFFNetwork(features_train, labels_train, tree_counts_i, randomSeed);
 
-                const size_t shape[] = {features_test.shape(0), countUniqueLabels(labels_test)};
+                const size_t shape[] = {features_test.shape(0), NUM_UNIQUE_LABELS};
 
                 std::cout << "Predicting with " << tree_counts_i << " trees." << std::endl;
                 rf_exp2.predict(features_test, predictions);
