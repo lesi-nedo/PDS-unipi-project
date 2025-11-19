@@ -11,7 +11,8 @@ endif()
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     add_definitions(-DDEBUG)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -fsanitize=address -fno-omit-frame-pointer")
+
 else()
     add_definitions(-DNDEBUG)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -DNDEBUG -ffast-math -mtune=generic")
@@ -34,6 +35,7 @@ set(PATHS_FILE "${CMAKE_SOURCE_DIR}/src/data/susy_paths.txt")
 set(RF_CONF_FILE "${CMAKE_SOURCE_DIR}/src/general.conf" CACHE STRING "The path to the configuration file for FastFlow implementation")
 
 # add_subdirectory(utils)
+find_package(TBB REQUIRED)
 
 find_package(Threads REQUIRED)
 if(NOT THREADS_FOUND)
@@ -104,7 +106,7 @@ foreach(line IN LISTS CONF_LINES)
        
         #   # Remove comments
         string(STRIP "${CMAKE_MATCH_2}" value)
-        string(REPLACE "\"" "" value "${value}")
+        # string(REPLACE "\"" "" value "${value}")
         string(TOUPPER "${CMAKE_MATCH_1}" key_upper)
 
         string(REGEX REPLACE "[ ]*#+.*$" "" value "${value}")

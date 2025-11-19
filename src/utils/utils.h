@@ -23,6 +23,10 @@
 #include "marray.h"
 #include "general_config.h"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 template<typename T>
 concept Primitive = std::is_arithmetic_v<T>;
 
@@ -447,246 +451,231 @@ inline void addPredictionRowToLog(
 }
 
 
-template<
-    typename Feature,
-    typename Label,
-    typename Probability,
-    DecisionForestConceptSeed<Feature, Label, Probability> ForestType
->
-void run_prediction(
-    const andres::Marray<Feature> &features_test,
-    const andres::Marray<Label> &labels_test,
-    const ForestType& forest_trained,
-    andres::Marray<Probability> &probabilities,
-    std::ofstream &performance_log
-) {
-    if(forest_trained.size() == 0) {
-        throw std::runtime_error("No trained forests provided for prediction.");
-    }
+/**
+ * @brief Helper function to set thread count based on implementation
+ */
+inline void setThreadCount(int num_threads) {
+    #ifdef _OPENMP
+    omp_set_num_threads(num_threads);
+    #endif
+    // For FastFlow, thread count is typically set via configuration
+    std::cout << "Setting thread count to: " << num_threads << std::endl;
+}
 
-    std::cout << "\n--- Starting prediction on test dataset with " << features_test.shape(0) << " samples and " << features_test.shape(1) << " features ---" << std::endl;
-    std::cout << "Number of trees: " << forest_trained.size() << std::endl;
-    auto start_predict = std::chrono::high_resolution_clock::now();
-    forest_trained.predict(features_test, probabilities);
-    auto end_predict = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> predict_duration = end_predict - start_predict;
-    double predictionThroughput = features_test.shape(0) / (predict_duration.count() / 1000.0);
-    std::cout << "Prediction finished in " << predict_duration.count() << " ms." << std::endl;
+/**
+ * @brief Calculate comprehensive metrics including accuracy, F1, precision, and recall
+ */
+template<typename Probability, typename Label>
+std::tuple<double, double, double, double> calculateMetrics(
+    const andres::Marray<Probability>& probabilities,
+    const andres::Marray<Label>& labels_test
+) {
     auto predicted_classes = probabilitiesToPredictions(probabilities);
     double accuracy = calculateAccuracy(predicted_classes, labels_test);
     auto [precision, recall, f1] = calculatePrecisionRecallF1(predicted_classes, labels_test);
-    std::cout << "Accuracy: " << accuracy * 100.0 << "%" << std::endl << std::endl;
-
-    auto prediction_data = std::make_tuple(predict_duration.count(), features_test.shape(0), features_test.shape(1), predictionThroughput,  accuracy, f1, precision, recall);
-    addPredictionRowToLog(performance_log, prediction_data);
+    return {accuracy, f1, precision, recall};
 }
-
-template<typename TrainFn, typename ForestType>
-void run_test_impl(
-    const std::vector<size_t>& tree_counts,
-    const std::vector<size_t>& samples_per_tree,
-    const std::vector<size_t>& samples_per_tree_test,
-    const std::string_view train_dt_path,
-    const std::string_view test_dt_path,
-    const std::string& results_path,
-    ForestType& forest,
-    TrainFn train_fn
-) {
-    if(samples_per_tree.size() > samples_per_tree_test.size()) {
-        throw std::runtime_error("samples_per_tree size must be less than or equal to samples_per_tree_test size.");
-    }
-    std::filesystem::create_directories(results_path);
-    std::ofstream performance_log(results_path + "performance.csv");
-    performance_log << "NumTrees,TrainingTime_ms,PredictionTime_ms,Accuracy,MemoryUsage_MB,SamplesPerTree,FeaturesPerTree,TrainingThroughput_samples_per_sec,PredictionThroughput_samples_per_sec,F1Score,Precision,Recall\n";
-    std::cout << "\nStarting performance evaluation loop..." << std::endl;
-
-    for(size_t ind {0}; ind < samples_per_tree.size(); ++ind) {
-        const auto samples = samples_per_tree[ind];
-        const auto samples_test = samples_per_tree_test[ind];
-        auto [features_train, labels_train] = loadCSVToMarray<double>(train_dt_path, ',', samples, andres::FirstMajorOrder); 
-        auto [features_test, labels_test] = loadCSVToMarray<double>(test_dt_path, ',', samples_test, andres::LastMajorOrder);
-        
-        std::cout << "--- Loaded datasets ---" << std::endl ;
-        std::cout << "Train Features shape: " << features_train.shape(0) << " x " << features_train.shape(1) << std::endl;
-        std::cout << "Train Labels shape: " << labels_train.shape(0) << std::endl;
-
-        for (const auto& numberOfTrees : tree_counts) {
-            std::cout << "\n--- Testing with " << numberOfTrees << " trees and " << "Train Samples: " << features_train.shape(0) << ". Test samples: " << features_test.shape(0)  << " ---" << std::endl;
-            forest.clear(); // Clear the forest before each test
-            long memory_before = getMemoryUsageMB();
-
-            // Time the training phase
-            std::cout << "Learning decision trees..." << std::endl;
-            auto start_train = std::chrono::high_resolution_clock::now();
-            train_fn(forest, features_train, labels_train, numberOfTrees);
-            auto end_train = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double, std::milli> train_duration = end_train - start_train;
-            std::cout << "Learned " << forest.size() << " decision trees in " << train_duration.count() << " ms." << std::endl;
-            long memory_after = getMemoryUsageMB();
-            double memory_usage = static_cast<double>(memory_after - memory_before);
-
-            double trainingThroughput = features_train.shape(0) / (train_duration.count() / 1000.0);
-
-            // Prepare for prediction
-            const size_t shape[] = {features_test.shape(0), NUM_UNIQUE_LABELS};
-            andres::Marray<double> probabilities(shape, shape+2);
-
-            // Time the prediction phase
-            std::cout << "Predicting..." << std::endl;
-            auto start_predict = std::chrono::high_resolution_clock::now();
-            forest.predict(features_test, probabilities);
-            auto end_predict = std::chrono::high_resolution_clock::now();
-            std::chrono::duration<double, std::milli> predict_duration = end_predict - start_predict;
-            double predictionThroughput = features_test.shape(0) / (predict_duration.count() / 1000.0);
-            std::cout << "Prediction finished in " << predict_duration.count() << " ms." << std::endl;
-
-            // Calculate and display accuracy
-            std::vector<int> classPredictions = probabilitiesToPredictions(probabilities);
-            double accuracy = calculateAccuracy(classPredictions, labels_test);
-            auto [precision, recall, f1] = calculatePrecisionRecallF1(classPredictions, labels_test);
-            std::cout << "Accuracy: " << accuracy * 100.0 << "%" << std::endl << std::endl;
-
-            // Log results to the CSV file
-            performance_log << numberOfTrees << ","
-                            << train_duration.count() << ","
-                            << predict_duration.count() << ","
-                            << accuracy << ","
-                            << memory_usage << ","
-                            << features_train.shape(0) << ","
-                            << features_train.shape(1) << ","
-                            << trainingThroughput << ","
-                            << predictionThroughput << ","
-                            << f1 << ","
-                            << precision << ","
-                            << recall << "\n";
-        }
-    }
-    performance_log.close();
-    std::cout << "\nPerformance evaluation finished. Results saved to " << results_path + "performance.csv" << std::endl;
-}
-
 
 /**
- * @brief Run a test for a decision forest engine with specified parameters
- * This function runs a series of tests on a decision forest engine using the provided
- * training and testing datasets. It measures training time, prediction time, accuracy,
- * and memory usage, and logs the results to a CSV file.
- * @param tree_counts A vector of tree counts to test
- * @param samples_per_tree A vector of sample sizes for each tree
- * @param samples_per_tree_test A vector of sample sizes for each tree in the test dataset
- * @param train_dt_path Path to the training dataset in CSV format
- * @param test_dt_path Path to the testing dataset in CSV format
- * @param results_path Path to save the performance results in CSV format
- * @param forest The decision forest engine instance to be tested
- * @param random_seed A random seed to be used for training (default: 0)
+ * @brief Extended performance evaluation with systematic parameter variation
  * 
- * @throws std::runtime_error If the training or testing datasets cannot be loaded
- * @throws std::runtime_error If the results file cannot be opened for writing
- * @note The function assumes the last column of the training and testing datasets contains labels
- * @note The function will log the results in a CSV format with columns for tree count,
- *      samples per tree, training time, prediction time, accuracy, and memory usage
- * @note The function will also print the results to the console for immediate feedback
- * * @example
- * @code
- * DecisionForestEngine forest;
- * std::vector<size_t> tree_counts = {10, 20, 30};
- * std::vector<size_t> samples_per_tree = {100, 200, 300};
- * run_test(tree_counts, samples_per_tree, "train_data.csv", "test_data.csv", "results.csv", forest, 42);
+ * This function performs comprehensive parameter sweeps
+ * for thorough performance analysis including thread count variations.
  */
 template<
     typename Feature,
     typename Label,
     typename Probability,
-    DecisionForestConceptSeed<Feature, Label, Probability> ForestType
+    typename ForestType,
+    typename TrainFn,
+    typename... Ts
 >
-void run_test(
+void run_comprehensive_evaluation(
     const std::vector<size_t>& tree_counts,
     const std::vector<size_t>& samples_per_tree,
     const std::vector<size_t>& samples_per_tree_test,
+    const std::vector<std::tuple<Ts...>>& thread_counts,
+    const int num_pred_workers,
     const std::string_view train_dt_path,
     const std::string_view test_dt_path,
     const std::string& results_path,
     ForestType& forest,
-    const int random_seed=0
+    TrainFn train_fn,
+    const size_t num_of_features,
+    const int random_seed = 0
 ) {
-    run_test_impl(
-        tree_counts, samples_per_tree, samples_per_tree_test, train_dt_path, test_dt_path, results_path, forest,
-        [&](auto& forest, const auto& features, const auto& labels, size_t numberOfTrees) {
-            forest.learn(features, labels, numberOfTrees, random_seed);
+
+    if (thread_counts.empty()) {
+        throw std::runtime_error("Thread counts vector cannot be empty.");
+    }
+    // const auto first_tuple = std::get<0>(thread_counts);
+    
+    using TupleType = typename std::vector<std::tuple<Ts...>>::value_type;
+    constexpr size_t num_elements = std::tuple_size<TupleType>::value;
+    
+    static_assert(num_elements == 3 || num_elements == 5,
+                  "Tuple must have 3 or 5 elements");
+
+    std::filesystem::create_directories(results_path);
+    std::ofstream performance_log(results_path + "comprehensive_performance.csv");
+    
+    // Enhanced CSV header with thread count and phase-specific metrics
+    performance_log << "NumTrees,NumThreads,TrainingTime_ms,PredictionTime_ms,"
+                    << "TotalTime_ms,Accuracy,MemoryUsage_MB,SamplesPerTree,"
+                    << "FeaturesPerTree,TrainingThroughput_samples_per_sec,"
+                    << "PredictionThroughput_samples_per_sec,F1Score,Precision,Recall,"
+                    << "TrainingSpeedup,PredictionSpeedup,OverallSpeedup,"
+                    << "TrainingEfficiency,PredictionEfficiency,OverallEfficiency\n";
+    
+    // Store baseline (single-thread) times for speedup calculation
+    std::unordered_map<std::string, std::tuple<double, double>> baseline_times;
+    
+    for(const auto& num_threads : thread_counts) {
+        
+        // Convert tuple to vector for runtime access
+        auto all_threads_vec = std::apply([](auto&&... args) {
+            return std::vector<int>{static_cast<int>(args)...};
+        }, num_threads);
+
+        std::vector<int> threads_pred = {};
+        auto total_pred_threads = 0;
+        
+        // Extract prediction threads (last num_pred_workers)
+        for(size_t i = 1; i <= static_cast<size_t>(num_pred_workers); ++i) {
+            if (num_elements >= i) {
+                int val = all_threads_vec[num_elements - i];
+                threads_pred.push_back(val);
+                total_pred_threads += val;
+            }
         }
-    );
+        
+        // Extract rest threads (first num_elements - num_pred_workers)
+        std::vector<int> rest_thread_counts_vec;
+        if (num_elements > static_cast<size_t>(num_pred_workers)) {
+            for(size_t k = 0; k < num_elements - static_cast<size_t>(num_pred_workers); ++k) {
+                rest_thread_counts_vec.push_back(all_threads_vec[k]);
+            }
+        }
+        
+        int total_threads = 1;
+        if (num_elements >= 2) {
+            int sum = 0;
+            for(int t : rest_thread_counts_vec) sum += t;
+            total_threads = sum > 0 ? sum : 1;
+        }
+        for(size_t idx = 0; idx < samples_per_tree.size(); ++idx) {
+            auto samples_train = samples_per_tree[idx];
+            auto samples_test = samples_per_tree_test[idx];
+            
+            auto [features_train, labels_train] = loadCSVToMarray<Feature>(
+                train_dt_path, ',', samples_train, andres::LastMajorOrder
+            );
+            auto [features_test, labels_test] = loadCSVToMarray<Feature>(
+                test_dt_path, ',', samples_test, andres::LastMajorOrder
+            );
+            
+            const size_t num_features = features_train.shape(1);
+            
+            for(const auto& numberOfTrees : tree_counts) {
+                std::string config_key = std::to_string(numberOfTrees) + "_" + std::to_string(samples_train);
+                
+                std::cout << "\n=== Configuration: Trees=" << numberOfTrees 
+                          << ", Threads=" << total_threads
+                          << ", TrainSamples=" << samples_train << " ===" << std::endl;
+                
+                long memory_before = getMemoryUsageMB();
+                
+                // TRAINING PHASE - Separate timing
+                auto start_train = std::chrono::high_resolution_clock::now();
+                train_fn(forest, features_train, labels_train, numberOfTrees, rest_thread_counts_vec);
+                auto end_train = std::chrono::high_resolution_clock::now();
+                std::chrono::duration<double, std::milli> train_duration = end_train - start_train;
+                
+                long memory_after = getMemoryUsageMB();
+                long memory_usage = memory_after - memory_before;
+                
+                // PREDICTION PHASE - Separate timing
+                const size_t shape[] = {features_test.shape(0), num_of_features};
+                andres::Marray<Probability> probabilities(shape, shape + 2);
+                
+                auto start_predict = std::chrono::high_resolution_clock::now();
+                forest.predict(features_test, probabilities, threads_pred);
+                auto end_predict = std::chrono::high_resolution_clock::now();
+                std::chrono::duration<double, std::milli> predict_duration = end_predict - start_predict;
+                
+                // Calculate metrics
+                double total_time = train_duration.count() + predict_duration.count();
+                double training_throughput = (samples_train * 1000.0) / train_duration.count();
+                double prediction_throughput = (samples_test * 1000.0) / predict_duration.count();
+                
+                auto [accuracy, f1, precision, recall] = calculateMetrics(
+                    probabilities, labels_test
+                );
+                
+                // Calculate speedup and efficiency
+                double train_speedup = 1.0, pred_speedup = 1.0, overall_speedup = 1.0;
+                double train_efficiency = 1.0, pred_efficiency = 1.0, overall_efficiency = 1.0;
+                bool is_baseline = true;
+                
+                is_baseline = std::all_of(rest_thread_counts_vec.begin(), rest_thread_counts_vec.end(), [](int val){ return val == 1; });
+                
+                if (is_baseline) {
+                    baseline_times[config_key] = {train_duration.count(), predict_duration.count()};
+                } else if (baseline_times.count(config_key)) {
+                    auto [baseline_train, baseline_pred] = baseline_times[config_key];
+                    train_speedup = baseline_train / train_duration.count();
+                    pred_speedup = baseline_pred / predict_duration.count();
+                    overall_speedup = (baseline_train + baseline_pred) / total_time;
+                    
+                    train_efficiency = train_speedup / total_threads;
+                    pred_efficiency = pred_speedup / total_pred_threads;
+                    overall_efficiency = overall_speedup / (total_threads + total_pred_threads);
+                }
+
+                forest.clear();
+                
+                // Log comprehensive results
+                performance_log << numberOfTrees << ","
+                              << total_threads << ","
+                              << train_duration.count() << ","
+                              << predict_duration.count() << ","
+                              << total_time << ","
+                              << accuracy << ","
+                              << memory_usage << ","
+                              << samples_train << ","
+                              << num_features << ","
+                              << training_throughput << ","
+                              << prediction_throughput << ","
+                              << f1 << ","
+                              << precision << ","
+                              << recall << ","
+                              << train_speedup << ","
+                              << pred_speedup << ","
+                              << overall_speedup << ","
+                              << train_efficiency << ","
+                              << pred_efficiency << ","
+                              << overall_efficiency << "\n";
+                
+                performance_log.flush();
+                
+                std::cout << "Training Time: " << train_duration.count() << " ms" << std::endl;
+                std::cout << "Prediction Time: " << predict_duration.count() << " ms" << std::endl;
+                std::cout << "Training Speedup: " << train_speedup << "x" << std::endl;
+                std::cout << "Prediction Speedup: " << pred_speedup << "x" << std::endl;
+                std::cout << "Training Efficiency: " << (train_efficiency * 100) << "%" << std::endl;
+                std::cout << "Prediction Efficiency: " << (pred_efficiency * 100) << "%" << std::endl;
+                std::cout << "Accuracy: " << accuracy << std::endl;
+            }
+        }
+    }
+    
+    performance_log.close();
+    std::cout << "\nComprehensive evaluation finished. Results saved to " 
+              << results_path + "comprehensive_performance.csv" << std::endl;
 }
 
 
-/**
- * @brief Run a test for a decision forest engine using FastFlow network
- * This function runs a series of tests on a decision forest engine using the provided
- * training and testing datasets. It measures training time, prediction time, accuracy,
- * and memory usage, and logs the results to a CSV file. It uses FastFlow network
- * for parallel processing of the decision forest learning.
- * @param tree_counts A vector of tree counts to test
- * @param samples_per_tree A vector of sample sizes for each tree
- * @param samples_per_tree_test A vector of sample sizes for each tree in the test dataset
- * @param train_dt_path Path to the training dataset in CSV format
- * @param test_dt_path Path to the testing dataset in CSV format
- * @param results_path Path to save the performance results in CSV format
- * @param forest The decision forest engine instance to be tested
- * @param random_seed A random seed to be used for training (default: 0)
- * @throws std::runtime_error If the training or testing datasets cannot be loaded
- * @throws std::runtime_error If the results file cannot be opened for writing
- * @note The function assumes the last column of the training and testing datasets contains labels
- * @note The function will log the results in a CSV format with columns for tree count,
- *      samples per tree, training time, prediction time, accuracy, and memory usage
- * @note The function will also print the results to the console for immediate feedback
- * @example
- * @code
- * DecisionForestEngine forest;
- * std::vector<size_t> tree_counts = {10, 20, 30};
- * std::vector<size_t> samples_per_tree = {100, 200, 300};
- * run_test_ff_network(tree_counts, samples_per_tree, "train_data.csv", "test_data.csv", "results.csv", forest, 42);
- * @endcode
- */
-template<typename Forest, typename Feature, typename Label, typename Probability>
-concept DecisionForestConceptNetwork = requires(
-    Forest                 forest,
-    const andres::View<Feature>&   features,
-    const andres::View<Label>&     labels,
-    size_t                 numberOfTrees,
-    const int              randomSeed,
-    andres::Marray<Probability>&   probabilities
-) {
-    { forest.learnWithFFNetwork(features, labels, numberOfTrees, randomSeed) };
-    { forest.predict(features, probabilities) };
-    { forest.size() } -> std::convertible_to<size_t>;
-};
-template<
-    typename Feature,
-    typename Label,
-    typename Probability,
-    typename ForestType
-> requires DecisionForestConceptNetwork<ForestType, Feature, Label, Probability>
-void run_test_ff_network(
-    const std::vector<size_t>& tree_counts,
-    const std::vector<size_t>& samples_per_tree,
-    const std::vector<size_t>& samples_per_tree_test,
-    const std::string_view   train_dt_path,
-    const std::string_view   test_dt_path,
-    const std::string&       results_path,
-    ForestType&              forest,
-    const int                random_seed = 0
-) {
-    run_test_impl(
-        tree_counts,
-        samples_per_tree,
-        samples_per_tree_test,
-        train_dt_path,
-        test_dt_path,
-        results_path,
-        forest,
-        [&](auto& f, const auto& feat, const auto& lab, size_t nt){
-            f.learnWithFFNetwork(feat, lab, nt, random_seed);
-        }
-    );
-}
+
+
 
 #endif

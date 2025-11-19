@@ -13,7 +13,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-
     MPI_Init(&argc, &argv);
     int world_size;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
@@ -25,107 +24,197 @@ int main(int argc, char* argv[]) {
     int world_rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
+    if (argc != 3) {
+        if (world_rank == 0) {
+            std::cerr << "Usage: " << argv[0] << " <train_dataset_path> <test_dataset_path>" << std::endl;
+        }
+        MPI_Finalize();
+        return 1;
+    }
+
+    std::string train_dataset {argv[1]};
     std::string test_dataset {argv[2]};
     std::string results_path {RESULTS_PATH_MPI};
-    std::string results_file;
-    std::ofstream performance_log;
-    mpi_ml::DecisionForest<double, int, double> rf;
-
+    mpi_ml::DecisionForest<double, int, double> forest;
+    
     const std::vector<size_t> samples_per_tree_test = DT_SAMPLES_PER_TREE_TEST;
     const std::vector<size_t> samples_per_tree = DT_SAMPLES_PER_TREE;
     const std::vector<size_t> tree_counts = DT_TREE_COUNTS;
+    const std::vector<std::tuple<int, int>> thread_counts = FF_THREADS;
+    const auto datasets_tuples = std::vector<std::tuple<std::string, std::string, size_t>>{ DATASETS_TUPLES };
+
     const int randomSeed = 42; // Fixed seed for reproducibility
 
+    if (world_rank == 0){
+        if (results_path[results_path.size() - 1] != '/') {
+            results_path += '/';
+        }
+        std::filesystem::create_directories(results_path);
+        const auto file_name = "performance_nodes_" + std::to_string(world_size) + ".csv";
+        std::ofstream performance_log(results_path + file_name);
 
-    if (world_rank == 0 && results_path[results_path.size() - 1] != '/') {
-        results_path += '/';
-    }
-    if (world_rank == 0) {
-        const 
-        std::filesystem::path path(results_file);
+        std::unordered_map<std::string, double> baseline_train_times;
+        std::unordered_map<std::string, double> baseline_pred_times;
 
-        if (samples_per_tree.size() != samples_per_tree_test.size()) {
-            std::cerr << "Error: samples_per_tree and samples_per_tree_test must have the same number of elements." << std::endl;
+        performance_log << "NumNodes,MPIProcesses,ThreadsPerProcess,TotalWorkers,"
+                        << "NumTrees,TrainSamples,TestSamples,"
+                        << "TrainingTime_ms,PredictionTime_ms,TotalTime_ms,"
+                        << "Accuracy,F1Score,Precision,Recall,"
+                        << "TrainingStrongScalingEfficiency,TrainingWeakScalingEfficiency,"
+                        << "PredictionStrongScalingEfficiency,PredictionWeakScalingEfficiency,"
+                        << "TrainingSpeedup,PredictionSpeedup,"
+                        << "TrainingCommunicationOverhead_ms,PredictionCommunicationOverhead_ms,MemoryUsage_MB\n";
+
+        std::cout << "\n=== Starting MPI Performance Evaluation ===" << std::endl;
+
+        try {
+            for (const auto& [train_path, test_path, unique_labels] : datasets_tuples){
+                if(!std::filesystem::exists(train_path) || !std::filesystem::exists(test_path)) {
+                    std::cerr << "Error: Dataset files not found: " 
+                              << train_path << " or " << test_path << std::endl;
+                    throw std::runtime_error("Train and test dataset files not found.");
+                }
+
+                for (const auto& [farmWorkers, workersPerTree]: thread_counts){
+                    const auto total_threads = farmWorkers * workersPerTree;
+                    const auto total_workers = world_size * total_threads;
+
+                    std::cout << "\n=== MPI Configuration: Processes=" << world_size
+                            << ", ThreadsPerProcess=" << total_threads
+                            << ", TotalWorkers=" << total_workers << "===" << std::endl;
+
+                    for(size_t idx = 0; idx < samples_per_tree.size(); ++idx) {
+                        const auto samples_train = samples_per_tree[idx];
+                        const auto samples_test = samples_per_tree_test[idx];
+
+                        for (const auto& numberOfTrees : tree_counts) {
+                            const std::string config_key = std::to_string(numberOfTrees) + "_" 
+                                                        + std::to_string(samples_train);
+
+                                    
+                            std::cout << "\n--- Testing Configuration: Trees=" << numberOfTrees
+                                    << ", TrainSamples=" << samples_train
+                                    << ", TestSamples=" << samples_test << " ---" << std::endl;
+                        
+                            long memory_before = getMemoryUsageMB();
+                            auto start_train = std::chrono::high_resolution_clock::now();
+                            forest.learnMaster(samples_train, numberOfTrees, world_size, randomSeed);
+                            auto end_train = std::chrono::high_resolution_clock::now();
+                            std::chrono::duration<double, std::milli> train_duration = end_train - start_train;
+                            long memory_after_train = getMemoryUsageMB();
+
+                            forest.terminateTraining(world_size);
+
+                            const size_t shape[] = {samples_test, unique_labels};
+                            andres::Marray<double> probabilities(shape, shape + 2);
+                            std::fill(&probabilities(0), &probabilities(0) + probabilities.size(), 0.0);
+
+                            auto start_predict = std::chrono::high_resolution_clock::now();
+                            forest.predictMaster(samples_test, world_size, probabilities);
+                            auto end_predict = std::chrono::high_resolution_clock::now();
+                            std::chrono::duration<double, std::milli> pred_duration = end_predict - start_predict;
+
+
+                            const auto memory_after_predict = getMemoryUsageMB();
+                            const auto memory_usage = memory_after_predict - memory_after_train;
+                            forest.terminatePrediction(world_size);
+
+                            auto [features_test, labels_test] = loadCSVToMarray<double>(
+                                test_path, ',', samples_test, andres::LastMajorOrder
+                            );
+
+                            auto [accuracy, f1, precision, recall] = calculateMetrics(
+                                probabilities, labels_test
+                            );
+
+                            const double total_time = train_duration.count() + pred_duration.count();
+                            double train_speedup = 1.0, pred_speedup = 1.0;
+                            double train_strong_efficiency = 1.0, pred_strong_efficiency = 1.0;
+                            double train_weak_efficiency = 1.0, pred_weak_efficiency = 1.0;
+
+                            if (threads == thread_counts[0]) {
+                                baseline_train_times[config_key] = train_duration.count();
+                                baseline_pred_times[config_key] = pred_duration.count();
+                            } else {
+                                train_speedup = baseline_train_times[config_key] / train_duration.count();
+                                pred_speedup = baseline_pred_times[config_key] / pred_duration.count();
+                                train_strong_efficiency = train_speedup / static_cast<double>(total_workers);
+                                pred_strong_efficiency = pred_speedup / static_cast<double>(total_workers);
+                                train_weak_efficiency = baseline_train_times[config_key] / train_duration.count();
+                                pred_weak_efficiency = baseline_pred_times[config_key] / pred_duration.count();
+                                
+
+
+                            }
+                            double train_est_comm_overhead = train_duration.count() - 
+                                               (baseline_train_times[config_key] / total_workers);
+
+                            double pred_est_comm_overhead = pred_duration.count() - 
+                                               (baseline_pred_times[config_key] / total_workers);
+
+                            // Log results
+                            performance_log << world_size << ","
+                                            << world_size << ","
+                                            << threads << ","
+                                            << total_workers << ","
+                                            << numberOfTrees << ","
+                                            << samples_train << ","
+                                            << samples_test << ","
+                                            << train_duration.count() << ","
+                                            << pred_duration.count() << ","
+                                            << total_time << ","
+                                            << accuracy << ","
+                                            << f1 << ","
+                                            << precision << ","
+                                            << recall << ","
+                                            << train_strong_efficiency << ","
+                                            << train_weak_efficiency << ","
+                                            << pred_strong_efficiency << ","
+                                            << pred_weak_efficiency << ","
+                                            << train_speedup << ","
+                                            << pred_speedup << ","
+                                            << train_est_comm_overhead << ","
+                                            << pred_est_comm_overhead << ","
+                                            << memory_usage << "\n";
+                            performance_log.flush();
+                            std::cout << "Training Time: " << train_duration.count() << " ms" << std::endl;
+                            std::cout << "Prediction Time: " << pred_duration.count() << " ms" << std::endl;
+                            std::cout << "Training Speedup: " << train_speedup << "x" << std::endl;
+                            std::cout << "Prediction Speedup: " << pred_speedup << "x" << std::endl;
+                            std::cout << "Training Strong Scaling Efficiency: " << (train_strong_efficiency * 100) << "%" << std::endl;
+                            std::cout << "Accuracy: " << (accuracy * 100) << "%" << std::endl;
+
+                            forest.clear();
+                        }
+                    }
+                }
+            }
+
+        } catch (const std::runtime_error& e) {
+            std::cerr << "Error during MPI evaluation: " << e.what() << std::endl;
             MPI_Abort(MPI_COMM_WORLD, 1);
         }
 
-        results_file = results_path + "performance_mpi.csv";
-        std::cout << "Starting MPI Decision Forest training with " << world_size << " processes." << std::endl;
-        std::cout << "Results will be saved to: " << results_file << std::endl;
+    } else {
+       for (const auto& [train_path, test_path, unique_labels] : datasets_tuples){
+            for (const auto& threads: thread_counts){
+                for(size_t idx = 0; idx < samples_per_tree.size(); ++idx) {
 
-        if (path.has_parent_path() && !std::filesystem::exists(path.parent_path())){
-            std::filesystem::create_directories(path.parent_path());
-        }
-        performance_log.open(results_file);
-        saveTrainingDataHeader(performance_log);
-        savePredictionDataHeader(performance_log);
-    }
-
-    for(int ind_sample = 0; ind_sample < samples_per_tree.size(); ++ind_sample){
-        const auto& samples = samples_per_tree[ind_sample];
-        const auto& samples_test = samples_per_tree_test[ind_sample];
-
-        for (const auto& num_of_trees : tree_counts){
-
-            if (world_rank == 0) {
-                
-                using namespace andres;
-
-                rf.clear();
-                
-                std::cout << "\n--- Number of Trees: " << num_of_trees << " and  " << "Train Samples: " << samples << " ---" << std::endl;
-                auto memory_before = getMemoryUsageMB();
-        
-                auto start_train = std::chrono::high_resolution_clock::now();
-                rf.learnMaster(samples, num_of_trees, world_size, randomSeed);
-                auto end_train = std::chrono::high_resolution_clock::now();
-                std::chrono::duration<double, std::milli> train_duration = end_train - start_train;
-                auto memory_after = getMemoryUsageMB();
-                double memory_usage = static_cast<double>(memory_after - memory_before);
-                std::cout << "Learned " << rf.size() << " decision trees in " << train_duration.count() << " ms." << "Memory used: " << memory_usage << " MB." << std::endl;
-
-                double trainingThroughput = samples / (train_duration.count() / 1000.0);
-                auto training_data = std::make_tuple(num_of_trees, train_duration.count(), memory_usage, samples, trainingThroughput);
-                addTrainRowToLog(performance_log, training_data);
-            
-                rf.terminateTraining(world_size);
-
-                std::cout << "\nTraining phase completed. Starting prediction phase..." << std::endl;
-
-                const auto [features_test, labels_test] = loadCSVToMarray<double>(std::string_view(test_dataset), ',', samples_test, andres::LastMajorOrder);
-                std::cout << "Master starts prediction phase with " << features_test.size() << " samples." << std::endl;
-
-                const size_t shapes[] = {features_test.shape(0), NUM_UNIQUE_LABELS};
-                andres::Marray<double> probabilities(shapes, shapes + 2);
-                std::fill(&probabilities(0), &probabilities(0) + probabilities.size(), 0.0);
-
-                auto start_predict = std::chrono::high_resolution_clock::now();
-                rf.predictMaster(samples_test, world_size, probabilities);
-                auto end_predict = std::chrono::high_resolution_clock::now();
-                std::chrono::duration<double, std::milli> predict_duration = end_predict - start_predict;
-                double predictionThroughput = samples_test / (predict_duration.count() / 1000.0);
-                std::cout << "Prediction finished in " << predict_duration.count() << " ms." << std::endl;
-                auto predicted_classes = probabilitiesToPredictions(probabilities);
-                double accuracy = calculateAccuracy(predicted_classes, labels_test);
-                auto [precision, recall, f1] = calculatePrecisionRecallF1(predicted_classes, labels_test);
-                std::cout << "Accuracy: " << accuracy * 100.0 << "%" << std::endl << std::endl;
-                auto prediction_data = std::make_tuple(predict_duration.count(), samples_test, probabilities.shape(1), predictionThroughput,  accuracy, f1, precision, recall);
-                addPredictionRowToLog(performance_log, prediction_data);
-
-                rf.terminatePrediction(world_size);
-                std::cout << "Prediction phase completed." << std::endl;
-                performance_log.flush();
-                
-            } else {
-                
-                std::string train_dataset = argv[1];
-
-                rf.learnWorker(train_dataset, world_rank, randomSeed);
-                rf.predictWorker(std::string_view(test_dataset), world_rank);
-
+                    for (const auto& numberOfTrees : tree_counts) {
+                        forest.learnWorker(
+                            std::string_view(train_path),
+                            world_rank
+                        );
+                        forest.predictWorker(
+                            std::string_view(test_path),
+                            world_rank
+                        );
+                    }
+                }
             }
-        }
+       }
     }
+
     MPI_Finalize();
     return 0;
 }

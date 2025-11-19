@@ -95,45 +95,6 @@ namespace ff_ml_exp2 {
         }
     };
     
-class OptimizedGiniCalculator {
-public:
-    // Calculates sum_{i<j} counts[i]*counts[j] using the identity:
-    // sum_{i<j} c_i*c_j = ( (sum c_i)^2 - sum(c_i^2) ) / 2
-    static size_t computeDistinctPairs(const std::vector<size_t>& labelCounts, size_t totalSamples) {
-        if (totalSamples < 2) {
-            return 0;
-        }
-        
-        
-        __m256d sum_sq_vec = _mm256_setzero_pd();
-        size_t i = 0;
-        
-        for (; i + 4 <= labelCounts.size(); i += 4) {
-            
-            double vals[4] = {
-                static_cast<double>(labelCounts[i]), static_cast<double>(labelCounts[i+1]),
-                static_cast<double>(labelCounts[i+2]), static_cast<double>(labelCounts[i+3])
-            };
-            __m256d counts_pd = _mm256_loadu_pd(vals);
-
-    
-            sum_sq_vec = _mm256_add_pd(sum_sq_vec, _mm256_mul_pd(counts_pd, counts_pd));
-        }
-
-        alignas(32) double sum_sq_parts[4];
-        _mm256_store_pd(sum_sq_parts, sum_sq_vec);
-        double sum_of_squares = sum_sq_parts[0] + sum_sq_parts[1] + sum_sq_parts[2] + sum_sq_parts[3];
-
-        for (; i < labelCounts.size(); ++i) {
-            sum_of_squares += static_cast<double>(labelCounts[i]) * static_cast<double>(labelCounts[i]);
-        }
-
-        double totalSamples_d = static_cast<double>(totalSamples);
-        double total_pairs_d = ((totalSamples_d * totalSamples_d) - sum_of_squares) / 2.0;
-        
-        return static_cast<size_t>(total_pairs_d + 0.5);
-    }
-};
 
 template<class FEATURE, class LABEL, class PROBABILITY>
 class DecisionForest;
@@ -598,13 +559,14 @@ public:
         const andres::View<Feature>&,
         const andres::View<Label>&,
         const size_t&,
+        const std::tuple<int, int, int>&,
         const int = 0
     );
     void deserialize(std::istream&);
 
     size_t size() const;
     const DecisionTreeType& decisionTree(const size_t) const;
-    void predict(const andres::View<Feature>&, andres::Marray<Probability>&) const;
+    void predict(const andres::View<Feature>&, andres::Marray<Probability>&, std::vector<int>&) const;
     void serialize(std::ostream&) const;
 
 private:
@@ -1440,6 +1402,7 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
     const andres::View<Feature>& features,
     const andres::View<Label>& labels,
     const size_t& numberOfDecisionTrees,
+    const std::tuple<int, int, int>& workersConfig,
     const int randomSeed
 ) {
     if(features.dimension() != 2) {
@@ -1467,19 +1430,12 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
     std::vector<std::vector<WorkerLA2A_t*>> workersLA2A_sets;
     std::vector<std::vector<WorkerRA2A_t*>> workersRA2A_sets;
     TrainGenerator generator (numberOfDecisionTrees);
-    size_t efWorkers = std::min(
-        static_cast<size_t>(EN_NUM_WORKERS), 
-        static_cast<size_t>(ff_numCores())
-    );
-    size_t wnSecWorekers = std::min(
-        numberOfDecisionTrees,
-        static_cast<size_t>(WN_SECOND_NUM_WORKERS)
-    );
-    wnSecWorekers = std::min(numberOfFeaturesToBeAssessed, wnSecWorekers);
-    efWorkers = std::min(efWorkers, numberOfDecisionTrees);
-    efWorkers = std::max(efWorkers, static_cast<size_t>(1)); // Ensure at least one farm is created.
+    auto efWorkers = std::get<0>(workersConfig);
+    auto wnFirstWorkers = std::get<1>(workersConfig);
+    auto wnSecWorekers = std::get<2>(workersConfig);
+
     std::cout << "Using " << efWorkers << " farms for training." << std::endl;
-    std::cout << "Using " << WN_FIRST_NUM_WORKERS << " workers for left set and "
+    std::cout << "Using " << wnFirstWorkers << " workers for left set and "
               << wnSecWorekers << " workers for right set in each farm." << std::endl;
 
     auto farm_builder = [&](){
@@ -1490,7 +1446,7 @@ void DecisionForest<FEATURE, LABEL, PROBABILITY>::learnWithFFNetwork(
             ));
 
             workersLA2A_sets.emplace_back();
-            for(size_t i = 0; i < WN_FIRST_NUM_WORKERS; ++i) 
+            for(size_t i = 0; i < wnFirstWorkers; ++i) 
                 workersLA2A_sets.back().push_back(
                     new WorkerLA2A_t(
                         features, labels, numberOfFeaturesToBeAssessed,  emitters.back()->matrixSampleIndices_
@@ -1588,7 +1544,8 @@ template<class FEATURE, class LABEL, class PROBABILITY>
 inline void 
 DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
     const andres::View<Feature>& features,
-    andres::Marray<Probability>& labelProbabilities 
+    andres::Marray<Probability>& labelProbabilities,
+    std::vector<int>& workersConfig 
 ) const  {
     if(size() == 0) {
         throw std::runtime_error("no decision trees.");
@@ -1619,12 +1576,9 @@ DecisionForest<FEATURE, LABEL, PROBABILITY>::predict(
 
 
 
-    auto numWorkers = std::min(static_cast<size_t>(MAX_PWN_NUM_WORKERS), features.shape(0) / CHUNK_SIZE_TO_PREDICT);
-    if(numWorkers == 0) {
-        numWorkers = 1; // Ensure at least one worker is created.
-    }
-    auto cpu_cores = static_cast<size_t>(ff_numCores());
-    size_t pfInPar = std::min(std::min(static_cast<size_t>(PEN_NUM_WORKERS), decisionTrees_.size()), cpu_cores);
+    auto pfInPar = workersConfig[0];
+    auto numWorkers = workersConfig[1];
+
     std::cout << "Using " << pfInPar << " parallel farms for prediction." << std::endl;
     std::cout << "Using " << numWorkers << " workers per farm." << std::endl;
     std::vector<std::vector<std::unique_ptr<PredWorker>>> workers(pfInPar);

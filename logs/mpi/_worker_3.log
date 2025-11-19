@@ -2,8 +2,8 @@ Worker 3 will train 66 trees with 2000 samples each.
 Using 32 workers for the forest (nested parallelism disabled, using single-threaded learning per tree).
 Worker 3 finished training 66 trees.
 Sent 66 trees to process 0
-Sent tree sizes: 2168453 to process 0
+Sent tree sizes: 2167670 to process 0
 Sent all tree data to process 0
 Worker 3 sent trained trees back to master.
 Worker 3 will train 0 trees with 99 samples each.
-Worker 3 finished in 2919.04 milliseconds.
+Worker 3 finished in 2468.34 milliseconds.

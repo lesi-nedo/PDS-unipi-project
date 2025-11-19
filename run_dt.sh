@@ -33,6 +33,11 @@ if [[ "$1" == "run_sequential_validation" ]]; then
   CMAKE_ARGS+=(-DBUILD_VALSEQ=ON)
 fi
 
+if [[ "$2" == "DEBUG" || "$2" == "Debug" || "$2" == "debug" ]]; then
+  echo "Building in Debug mode."
+  CMAKE_ARGS+=(-DCMAKE_BUILD_TYPE=Debug)
+fi
+
 curr_dir_name=$(basename "$PWD")
 if [[ "$curr_dir_name" != "build" ]]; then
   echo "Error: This script must be run from the 'build' directory."
@@ -47,14 +52,11 @@ cmake --build . --target "$1" -j 4
 
 cd ..
 
-TRAIN_DATA=./data/susy/train_susy.csv
-TEST_DATA=./data/susy/test_susy.csv
-
 if [[ "$1" == "mpi_impl" ]]; then
   MPI_PROCS="${MPI_PROCS:-${2:-2}}"
   if command -v srun >/dev/null 2>&1; then
     echo "Running within SLURM environment using srun with $MPI_PROCS processes."
-    srun -n "$MPI_PROCS" $SRUN_ARGS ./build/bin/mpi_impl "$TRAIN_DATA" "$TEST_DATA"
+    srun -n "$MPI_PROCS" $SRUN_ARGS ./build/bin/mpi_impl
     exit 0
   fi
     
@@ -67,7 +69,7 @@ if [[ "$1" == "mpi_impl" ]]; then
     exit 1
   fi
   echo "Running MPI implementation with $MPI_PROCS processes."
-  mpirun -np "$MPI_PROCS" ./build/bin/mpi_impl "$TRAIN_DATA" "$TEST_DATA"
+  mpirun -np "$MPI_PROCS" ./build/bin/mpi_impl 
 elif [[ ! "$1" =~ ^run ]]; then
   ./build/bin/"$1" "$TRAIN_DATA" "$TEST_DATA"
 fi

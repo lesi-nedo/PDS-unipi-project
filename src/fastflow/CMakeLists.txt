@@ -67,6 +67,8 @@ add_executable(
     "${CMAKE_SOURCE_DIR}/src/utils/utils.cpp" 
 )
 
+target_link_libraries(ff_impl_exp1 PRIVATE TBB::tbb)
+target_link_libraries(ff_impl_exp2 PRIVATE TBB::tbb)
 
 target_include_directories(
     ff_impl_exp1

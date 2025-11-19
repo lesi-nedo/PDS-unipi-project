@@ -3,4 +3,6 @@
 
 // Define any MPI implementation-specific configurations here
 #define RESULTS_PATH_MPI "@RESULTS_PATH_MPI@"
+#define FF_THREADS @FF_THREADS@
+
 #endif // MPI_IMPL_CONFIG_H

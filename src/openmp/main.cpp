@@ -45,19 +45,39 @@ int main(int argc, char* argv[]) {
     const std::vector<size_t> samplesPerTree = DT_SAMPLES_PER_TREE;
     const std::vector<size_t> samplesPerTreeTest = DT_SAMPLES_PER_TREE_TEST;
     const std::vector<size_t> treeCounts = DT_TREE_COUNTS;
+    
+    // Thread count variations for comprehensive evaluation
+    const std::vector<int> thread_counts = {1, 2, 4, 8, 16, 32};
 
     try
     {
-        run_test<double, int, double>(
-            treeCounts, samplesPerTree, samplesPerTreeTest,
-            std::string_view(trainPath), std::string_view(testPath), results_path, df, randomSeed
+        std::cout << "\n=== Starting Comprehensive Performance Evaluation (OpenMP) ===" << std::endl;
+        std::cout << "Thread counts to test: ";
+        for (const auto& tc : thread_counts) std::cout << tc << " ";
+        std::cout << std::endl;
+        
+        run_comprehensive_evaluation<double, int, double>(
+            treeCounts, 
+            samplesPerTree, 
+            samplesPerTreeTest,
+            thread_counts,
+            std::string_view(trainPath), 
+            std::string_view(testPath), 
+            results_path, 
+            df,
+            [randomSeed](auto& forest, const auto& features, const auto& labels, size_t numTrees, const std::vector<int>& /*workersConfig*/) {
+                forest.learn(features, labels, numTrees, randomSeed);
+            },
+            randomSeed
         );
+        
     }
     catch(const std::exception& e)
     {
         std::cerr << e.what() << '\n';
+        return 1;
     }
     
-}
+    return 0;
     
 

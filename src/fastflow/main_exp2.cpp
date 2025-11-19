@@ -31,16 +31,50 @@ int main(int argc, char* argv[]) {
     const std::vector<size_t> samples_perTree = DT_SAMPLES_PER_TREE;
     const std::vector<size_t> samples_perTree_test = DT_SAMPLES_PER_TREE_TEST;
     const std::vector<size_t> tree_counts = DT_TREE_COUNTS;
-
+    const std::vector<std::tuple<int, int, int, int,int>> ff_exp2_threads = FF_EXP2_THREADS;
+    const auto datasets_tuples = DATASETS_TUPLES;
+    
     try {
-        run_test_ff_network<double, int, double>(tree_counts, samples_perTree, samples_perTree_test, 
-                 std::string_view(train_dataset), 
-                 std::string_view(test_dataset), 
-                 results_path, rf, randomSeed);
+        // Run comprehensive evaluation with thread variations
+        std::cout << "\n=== Starting Comprehensive Performance Evaluation (Exp2) ===" << std::endl;
+        std::cout << "Thread counts to test: ";
+        for (const auto& [emitterWorkers, farmWorkers, treeWorkers, predWorkers1, predWorkers2] : ff_exp2_threads) 
+            std::cout << emitterWorkers << " " << farmWorkers << " " << treeWorkers << " " << predWorkers1 << " " << predWorkers2 << " ";
+        std::cout << std::endl;
+
+        auto train_lambda = [randomSeed](auto& forest, const auto& features, const auto& labels, size_t numTrees, const std::vector<int>& workersConfigVec) {
+            std::tuple<int, int, int> workersConfig;
+            if (workersConfigVec.size() >= 3) {
+                workersConfig = std::make_tuple(workersConfigVec[0], workersConfigVec[1], workersConfigVec[2]);
+            } else {
+                // Fallback logic if needed
+                workersConfig = std::make_tuple(1, 1, 1);
+            }
+            forest.learnWithFFNetwork(features, labels, numTrees, workersConfig, randomSeed);
+        };
+        const int num_pred_workers = 2;
+        for (const auto& [train_dataset, test_dataset, num_features] : datasets_tuples) {
+            
+            run_comprehensive_evaluation<double, int, double>(
+                tree_counts, 
+                samples_perTree, 
+                samples_perTree_test,
+                ff_exp2_threads,
+                num_pred_workers,
+                std::string_view(train_dataset), 
+                std::string_view(test_dataset), 
+                results_path, 
+                rf,
+                train_lambda,
+                num_features,
+                randomSeed
+            );
+        }
+        
     } catch (const std::runtime_error& e) {
         std::cerr << "Error during testing: " << e.what() << std::endl;
         return 1;
     }
     
-
+    return 0;
 }
